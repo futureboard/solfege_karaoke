@@ -35,7 +35,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | | |
 |---|---|
 | ![Song search](docs/screenshots/songs.png) | ![Mixer](docs/screenshots/mixer.png) |
-| Song search overlay (`/`) | Mixer panel (`M`) with the effect chain on the right |
+| Song search overlay (`/`) | Mixer panel (`M`): strips scroll sideways, effect chain on the right |
 | ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Sounds per instrument](docs/screenshots/instruments.png) |
 | Sound settings window (`S`): SoundFont per channel | A sound for any GM instrument |
 | ![Count-in](docs/screenshots/count-in.png) | ![Context menu](docs/screenshots/context-menu.png) |
@@ -45,7 +45,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | ![A kit per drum piece](docs/screenshots/drum-pieces.png) | ![Effect editor](docs/screenshots/effects.png) |
 | Kick, snare, ... each from its own SoundFont and kit | Effect slot editor (popup over the mixer) |
 | ![Settings](docs/screenshots/settings.png) | |
-| Settings popup (`Ctrl ,`), lyrics section | |
+| Settings popup (`Ctrl ,`): lyric font and colours | |
 
 ## What is in here
 
@@ -67,6 +67,10 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   lines drift up, or *classic*, two fixed lines in the middle that take
   turns. A title card shows before the singing starts, four dots count
   in after a long rest, and the time of day sits in the corner.
+  The lyric colours (still to sing, sung, the wipe edge, outline) come
+  from six presets or a colour picker each, and the lyrics can use any
+  `.ttf` / `.otf` / `.ttc` font (letters it lacks fall back to Noto Sans
+  Thai).
 - **Guide melody off** (`V`). Mutes MIDI channel 9, where NCN songs
   carry the vocal melody, in every song until turned back on.
 - **Overlays.** Songs and queue share one panel over the stage (`/`,
@@ -75,7 +79,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   dragged by its title bar (double-click it to put it back).
 - **Settings.** Sections for the song library (folders, counts, rescan),
   audio output (device, volume, guide melody), lyrics (layout, size with
-  a live sample, timing, clock), shortcuts and the data files.
+  a live sample, timing, clock, font, colours), shortcuts and the data files.
 - **Context menus.** Right click the stage or the bottom bar for
   playback, key and tempo, every panel and full screen; right click a
   song, a queued song, a mixer strip, a SoundFont or a channel for what
@@ -95,7 +99,9 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 - **Mixer.** Its own panel, docked under the lyrics: all 16 MIDI channels
   (channel 10 is the fader for the whole drum kit), each drum-kit piece,
   reverb and chorus returns and master, with gain, pan, mute, solo,
-  reverb / chorus sends and meters. Pan and sends start from the song's
+  reverb / chorus sends and meters. Strips keep a readable width; when
+  they do not all fit, a scrollbar (or the mouse wheel) slides them
+  sideways. Pan and sends start from the song's
   own values (MIDI CC 10, 91, 93) and your adjustment goes on top;
   double-click returns to the song's value. The reverb (room, damping,
   width) and chorus (rate, depth, delay) are adjustable on their return
@@ -187,7 +193,7 @@ under Settings):
 
 | File | What it holds |
 |---|---|
-| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size and offset. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size, offset, colours and font. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
 | `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
 
 Settings and catalogues of older versions (eframe's `app.ron`,

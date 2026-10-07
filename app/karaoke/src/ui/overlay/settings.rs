@@ -6,7 +6,7 @@
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Margin, Rect, RichText, Sense, Stroke, pos2, vec2};
 
 use crate::app::KaraokeApp;
-use crate::config::LyricMode;
+use crate::config::{LyricColors, LyricMode};
 use crate::dialog::Pick;
 use crate::icons;
 use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, RAISED, SUNG, TEXT, UNSUNG, lyrics_family};
@@ -346,16 +346,7 @@ fn lyrics(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             ui.spacing_mut().slider_width = 200.0;
             ui.add(egui::Slider::new(&mut app.settings.lyric_scale, 0.6..=1.6).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
         });
-        // Live sample at the chosen size.
-        let size = 30.0 * app.settings.lyric_scale;
-        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), size * 1.6 + 12.0), Sense::hover());
-        let p = ui.painter();
-        p.rect_filled(rect, CornerRadius::same(10), INK);
-        let g = p.layout_no_wrap("ตัวอย่างเนื้อร้อง".into(), FontId::new(size, lyrics_family()), UNSUNG);
-        let pos = rect.center() - g.size() / 2.0;
-        let half = pos.x + g.size().x * 0.45;
-        p.galley(pos, g.clone(), UNSUNG);
-        p.with_clip_rect(Rect::from_min_max(rect.min, pos2(half, rect.max.y))).galley_with_override_text_color(pos, g, SUNG);
+        sample(ui, app);
         ui.separator();
         row(ui, "เลื่อนเวลาเนื้อร้อง", "ค่าบวก = เนื้อร้องช้าลง ใช้ชดเชยความหน่วงของลำโพงหรือ Bluetooth", |ui| {
             if ui.add_enabled(app.settings.lyric_offset_ms != 0, egui::Button::new(icons::UNDO)).on_hover_text("กลับเป็น 0").clicked() {
@@ -369,6 +360,97 @@ fn lyrics(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             switch(ui, &mut app.settings.show_clock);
         });
     });
+    card(ui, |ui| {
+        card_title(ui, icons::TYPE, "ฟอนต์เนื้อร้อง", "ไฟล์ .ttf / .otf / .ttc ตัวอักษรที่ฟอนต์ไม่มีจะใช้ Noto Sans Thai แทน");
+        ui.add_space(4.0);
+        // Right to left: the buttons keep their size, the name takes the rest.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.add_enabled(app.settings.lyric_font.is_some(), egui::Button::new(icons::UNDO)).on_hover_text("กลับไปใช้ฟอนต์เดิม").clicked() {
+                let ctx = ui.ctx().clone();
+                app.set_lyric_font(&ctx, None);
+            }
+            let picking = app.dialogs.busy();
+            if ui.add_enabled(!picking, egui::Button::new(format!("{}  เลือกไฟล์ฟอนต์…", icons::FOLDER_OPEN))).clicked() {
+                let start = app.settings.lyric_font.clone();
+                app.dialogs.ask(Pick::LyricFont, start);
+            }
+            let name = app.settings.lyric_font.as_ref().and_then(|p| p.file_name()).map_or("Noto Sans Thai Bold (ค่าเริ่มต้น)".to_string(), |n| n.to_string_lossy().into_owned());
+            let full = app.settings.lyric_font.as_ref().map_or(name.clone(), |p| p.display().to_string());
+            let w = ui.available_width();
+            Frame::new().fill(INK).corner_radius(CornerRadius::same(8)).inner_margin(Margin::symmetric(10, 6)).show(ui, |ui| {
+                ui.set_width(w - 20.0);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(RichText::new(&name).color(TEXT)).truncate()).on_hover_text(full);
+                });
+            });
+        });
+    });
+    card(ui, |ui| {
+        card_title(ui, icons::EFFECTS, "สีเนื้อร้อง", "สีตัวอักษร สีที่ร้องแล้ว สีขอบที่กำลังปาด และสีขอบตัวอักษร");
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            for (name, preset) in LyricColors::PRESETS {
+                if preset_swatch(ui, name, preset, app.settings.lyric_colors == preset) {
+                    app.settings.lyric_colors = preset;
+                }
+            }
+        });
+        ui.add_space(4.0);
+        let colors = &mut app.settings.lyric_colors;
+        egui::Grid::new("lyric-colors").num_columns(4).spacing([14.0, 8.0]).show(ui, |ui| {
+            let rows: [(&str, &mut [u8; 3]); 4] = [
+                ("ยังไม่ร้อง", &mut colors.unsung),
+                ("ร้องแล้ว", &mut colors.sung),
+                ("กำลังปาด", &mut colors.wipe),
+                ("ขอบตัวอักษร", &mut colors.outline),
+            ];
+            for (i, (label, value)) in rows.into_iter().enumerate() {
+                ui.color_edit_button_srgb(value);
+                ui.label(RichText::new(label).color(TEXT));
+                if i % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
+    });
+}
+
+/// The lyric sample at the chosen size, colours and font, half sung.
+fn sample(ui: &mut egui::Ui, app: &KaraokeApp) {
+    let c = app.settings.lyric_colors;
+    let rgb = |v: [u8; 3]| Color32::from_rgb(v[0], v[1], v[2]);
+    let size = 30.0 * app.settings.lyric_scale;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), size * 1.6 + 12.0), Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::same(10), INK);
+    let g = p.layout_no_wrap("ตัวอย่างเนื้อร้อง".into(), FontId::new(size, lyrics_family()), UNSUNG);
+    let pos = rect.center() - g.size() / 2.0;
+    let o = (size * 0.035).clamp(1.0, 3.5);
+    for d in [vec2(-o, 0.0), vec2(o, 0.0), vec2(0.0, -o), vec2(0.0, o)] {
+        p.galley_with_override_text_color(pos + d, g.clone(), rgb(c.outline));
+    }
+    p.galley_with_override_text_color(pos, g.clone(), rgb(c.unsung));
+    let (done, edge) = (pos.x + g.size().x * 0.4, pos.x + g.size().x * 0.5);
+    let clip = |x0: f32, x1: f32| Rect::from_min_max(pos2(x0, rect.top()), pos2(x1, rect.bottom()));
+    p.with_clip_rect(clip(rect.left(), done)).galley_with_override_text_color(pos, g.clone(), rgb(c.sung));
+    p.with_clip_rect(clip(done, edge)).galley_with_override_text_color(pos, g, rgb(c.wipe));
+}
+
+/// A preset as three colour dots and its name; returns true when picked.
+fn preset_swatch(ui: &mut egui::Ui, name: &str, c: LyricColors, on: bool) -> bool {
+    let rgb = |v: [u8; 3]| Color32::from_rgb(v[0], v[1], v[2]);
+    let g = ui.painter().layout_no_wrap(name.to_string(), FontId::proportional(12.0), TEXT);
+    let (rect, resp) = ui.allocate_exact_size(vec2(g.size().x + 64.0, 30.0), Sense::click());
+    let p = ui.painter();
+    p.rect_filled(rect, CornerRadius::same(15), if on { SUNG.gamma_multiply(0.12) } else { INK });
+    p.rect_stroke(rect, CornerRadius::same(15), Stroke::new(1.0, if on { SUNG } else if resp.hovered() { DIM } else { LINE }), egui::StrokeKind::Inside);
+    for (k, v) in [c.unsung, c.sung, c.wipe].into_iter().enumerate() {
+        let center = pos2(rect.left() + 14.0 + k as f32 * 13.0, rect.center().y);
+        p.circle_filled(center, 6.0, rgb(c.outline));
+        p.circle_filled(center, 5.0, rgb(v));
+    }
+    p.galley(pos2(rect.left() + 52.0, rect.center().y - g.size().y / 2.0), g, if on { SUNG } else { TEXT });
+    resp.clicked()
 }
 
 /// A clickable picture of a lyric layout; returns true when picked.

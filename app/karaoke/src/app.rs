@@ -116,6 +116,15 @@ impl KaraokeApp {
             pending_song: launch.song,
             clock: 0.0,
         };
+        if let Some(path) = app.settings.lyric_font.clone() {
+            match crate::style::load_font(&path) {
+                Ok(data) => crate::style::set_fonts(&cc.egui_ctx, Some(data)),
+                Err(e) => {
+                    app.settings.lyric_font = None;
+                    app.toast_error(format!("ใช้ฟอนต์เนื้อร้องไม่ได้ กลับไปใช้ฟอนต์เดิม — {e}"));
+                }
+            }
+        }
         if let Some(e) = config_error {
             app.toast_error(format!("อ่านไฟล์ตั้งค่าไม่ได้ ใช้ค่าเริ่มต้น (เก็บไฟล์เดิมเป็น .bak): {e}"));
         }
@@ -307,6 +316,7 @@ impl KaraokeApp {
                 match pick {
                     Pick::SoundFonts => self.add_soundfont(path),
                     Pick::SongFolder => self.add_source(path),
+                    Pick::LyricFont => self.set_lyric_font(ctx, Some(path)),
                 }
             }
         }
@@ -445,6 +455,26 @@ impl KaraokeApp {
         self.synth.set_melody_off(off);
         self.settings.melody_off = off;
         self.toast(if off { "ปิดเมโลดี้ร้องนำ (ช่อง 9)".into() } else { "เปิดเมโลดี้ร้องนำ (ช่อง 9)".into() });
+    }
+
+    /// Use a font file for the lyrics, or `None` for the bundled Noto Sans
+    /// Thai. A file that is not a usable font is reported and not used.
+    pub fn set_lyric_font(&mut self, ctx: &egui::Context, path: Option<PathBuf>) {
+        match path {
+            Some(p) => match crate::style::load_font(&p) {
+                Ok(data) => {
+                    crate::style::set_fonts(ctx, Some(data));
+                    let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                    self.toast(format!("ฟอนต์เนื้อร้อง: {name}"));
+                    self.settings.lyric_font = Some(p);
+                }
+                Err(e) => self.toast_error(format!("ใช้ฟอนต์นี้ไม่ได้ — {e}")),
+            },
+            None => {
+                crate::style::set_fonts(ctx, None);
+                self.settings.lyric_font = None;
+            }
+        }
     }
 
     /// Switch between the two lyric layouts.

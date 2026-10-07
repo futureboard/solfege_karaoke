@@ -52,6 +52,42 @@ pub struct Settings {
     pub melody_off: bool,
     /// Show the time of day on the stage.
     pub show_clock: bool,
+    /// Colours of the lyrics and their wipe.
+    pub lyric_colors: LyricColors,
+    /// Font file for the lyrics (`.ttf`, `.otf`, `.ttc`); `None` = Noto Sans Thai.
+    pub lyric_font: Option<PathBuf>,
+}
+
+/// Colours of the lyric stage, as RGB.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LyricColors {
+    /// Text not sung yet.
+    pub unsung: [u8; 3],
+    /// Text already sung.
+    pub sung: [u8; 3],
+    /// The syllable being sung (the moving edge of the wipe) and the bead.
+    pub wipe: [u8; 3],
+    /// Rim around the letters.
+    pub outline: [u8; 3],
+}
+
+impl Default for LyricColors {
+    fn default() -> Self {
+        Self::PRESETS[0].1
+    }
+}
+
+impl LyricColors {
+    /// Ready-made colour sets.
+    pub const PRESETS: [(&'static str, LyricColors); 6] = [
+        ("ส้มทอง", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0xff, 0xb0, 0x3b], wipe: [0xff, 0x6a, 0x3d], outline: [0x15, 0x15, 0x15] }),
+        ("ฟ้า", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0x4f, 0xc3, 0xf7], wipe: [0x29, 0x79, 0xff], outline: [0x0b, 0x12, 0x20] }),
+        ("ชมพู", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0xff, 0x7e, 0xb6], wipe: [0xe0, 0x40, 0xfb], outline: [0x1a, 0x0b, 0x16] }),
+        ("เขียว", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0x69, 0xf0, 0xae], wipe: [0x00, 0xc8, 0x53], outline: [0x08, 0x18, 0x10] }),
+        ("แดงขาว", LyricColors { unsung: [0xff, 0xff, 0xff], sung: [0xff, 0x40, 0x40], wipe: [0xff, 0xd0, 0x40], outline: [0x00, 0x00, 0x00] }),
+        ("น้ำเงินเหลือง", LyricColors { unsung: [0xff, 0xf1, 0x76], sung: [0x40, 0x80, 0xff], wipe: [0x80, 0xd8, 0xff], outline: [0x00, 0x00, 0x30] }),
+    ];
 }
 
 /// How the lyrics are laid out on the stage.
@@ -101,6 +137,8 @@ impl Default for Settings {
             lyric_mode: LyricMode::Scroll,
             melody_off: false,
             show_clock: true,
+            lyric_colors: LyricColors::default(),
+            lyric_font: None,
         }
     }
 }
@@ -215,6 +253,8 @@ mod tests {
         s.soundfonts = vec![PathBuf::from("/fonts/gm.sf2")];
         s.drum_lock = Some((128, 16));
         s.fx.reverb_room = 0.9;
+        s.lyric_colors = LyricColors::PRESETS[2].1;
+        s.lyric_font = Some(PathBuf::from("/fonts/lyrics.ttf"));
         file.save(&s).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"soundfonts\": [\n"), "pretty JSON:\n{text}");
@@ -228,6 +268,8 @@ mod tests {
         assert!(again.existed(), "the file is there now");
         assert_eq!(back.to_json(), s.to_json());
         assert_eq!(back.fx.reverb_room, 0.9);
+        assert!(back.lyric_colors == LyricColors::PRESETS[2].1);
+        assert_eq!(back.lyric_font, s.lyric_font);
 
         // Hand-edited with fields missing: defaults fill in.
         std::fs::write(&path, r#"{ "volume": 0.3 }"#).unwrap();
@@ -235,6 +277,7 @@ mod tests {
         assert!(err.is_none());
         assert_eq!(partial.volume, 0.3);
         assert_eq!(partial.lyric_scale, 1.0);
+        assert!(partial.lyric_colors == LyricColors::default());
 
         // Broken: reported, defaults used, the file kept aside.
         std::fs::write(&path, "{ not json").unwrap();

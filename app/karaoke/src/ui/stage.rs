@@ -21,6 +21,24 @@ use crate::style::{ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family
 use crate::timeline::{COUNT_IN_BEATS, Cue, Line};
 use crate::ui::{menu, overlay};
 
+/// Colours of the lyrics (from the settings), set at the start of a frame.
+#[derive(Clone, Copy)]
+struct Palette {
+    unsung: Color32,
+    sung: Color32,
+    wipe: Color32,
+    outline: Color32,
+}
+
+const PALETTE: &str = "lyric-palette";
+
+fn palette(painter: &Painter) -> Palette {
+    painter
+        .ctx()
+        .data(|d| d.get_temp(egui::Id::new(PALETTE)))
+        .unwrap_or(Palette { unsung: UNSUNG, sung: SUNG, wipe: SUNG_HOT, outline: INK })
+}
+
 /// Once the current line is done, move the stage to the next line this
 /// long before its count-in would begin.
 const LOOK_AHEAD: f64 = 0.5;
@@ -36,6 +54,10 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     resp.context_menu(|ui| menu::app_menu(app, ui));
     let painter = ui.painter_at(rect);
     backdrop(&painter, rect);
+    let c = app.settings.lyric_colors;
+    let rgb = |v: [u8; 3]| Color32::from_rgb(v[0], v[1], v[2]);
+    let palette = Palette { unsung: rgb(c.unsung), sung: rgb(c.sung), wipe: rgb(c.wipe), outline: rgb(c.outline) };
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(PALETTE), palette));
     if app.settings.show_clock {
         wall_clock(&painter, rect);
         // Wake up for the next minute even when nothing plays.
@@ -205,13 +227,14 @@ fn draw_line(
     let wipe_x = done_x + (edge(done + 1) - done_x) * frac;
 
     let a = |c: Color32| c.gamma_multiply(alpha);
-    outline(painter, &galley, pos, size, a(INK.gamma_multiply(0.85)));
-    painter.galley_with_override_text_color(pos, galley.clone(), a(UNSUNG));
+    let pal = palette(painter);
+    outline(painter, &galley, pos, size, a(pal.outline.gamma_multiply(0.85)));
+    painter.galley_with_override_text_color(pos, galley.clone(), a(pal.unsung));
     if wipe_x > left {
         let tall = |x0: f32, x1: f32| Rect::from_min_max(pos2(x0, pos.y - size), pos2(x1, pos.y + galley.size().y + size));
-        painter.with_clip_rect(tall(left - 2.0, done_x)).galley_with_override_text_color(pos, galley.clone(), a(SUNG));
+        painter.with_clip_rect(tall(left - 2.0, done_x)).galley_with_override_text_color(pos, galley.clone(), a(pal.sung));
         if wipe_x > done_x {
-            painter.with_clip_rect(tall(done_x, wipe_x)).galley_with_override_text_color(pos, galley.clone(), a(SUNG_HOT));
+            painter.with_clip_rect(tall(done_x, wipe_x)).galley_with_override_text_color(pos, galley.clone(), a(pal.wipe));
         }
     }
 
@@ -220,7 +243,7 @@ fn draw_line(
     if singing {
         let bead = pos2(wipe_x, pos.y + galley.size().y + size * 0.12);
         for (r, o) in [(size * 0.16, 0.12), (size * 0.10, 0.25), (size * 0.055, 1.0)] {
-            painter.circle_filled(bead, r, SUNG_HOT.gamma_multiply(o));
+            painter.circle_filled(bead, r, pal.wipe.gamma_multiply(o));
         }
     }
 
@@ -235,7 +258,7 @@ fn draw_line(
             let c = pos2(left + lead + r + k as f32 * r * 3.0, y);
             if k < dots {
                 let grow = if k + 1 == dots { 0.8 + 0.2 * pulse } else { 1.0 };
-                painter.circle_filled(c, r * grow, SUNG);
+                painter.circle_filled(c, r * grow, pal.sung);
             } else {
                 painter.circle_stroke(c, r * 0.7, Stroke::new(1.5, DIM.gamma_multiply(0.5)));
             }
@@ -269,15 +292,16 @@ fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i
     let c = rect.center();
     let max_w = rect.width() - 80.0;
     let mut size = base * 1.05;
-    let mut g = painter.layout_no_wrap(now.song.meta.title.clone(), FontId::new(size, lyrics_family()), SUNG);
+    let pal = palette(painter);
+    let mut g = painter.layout_no_wrap(now.song.meta.title.clone(), FontId::new(size, lyrics_family()), pal.sung);
     if g.size().x > max_w {
         size *= max_w / g.size().x;
-        g = painter.layout_no_wrap(now.song.meta.title.clone(), FontId::new(size, lyrics_family()), SUNG);
+        g = painter.layout_no_wrap(now.song.meta.title.clone(), FontId::new(size, lyrics_family()), pal.sung);
     }
     let pos = c - vec2(g.size().x / 2.0, g.size().y + base * 0.2);
-    outline(painter, &g, pos, size, INK);
-    painter.galley(pos, g, SUNG);
-    painter.text(c + vec2(0.0, base * 0.15), Align2::CENTER_TOP, &now.song.meta.artist, FontId::new(base * 0.5, lyrics_family()), UNSUNG);
+    outline(painter, &g, pos, size, pal.outline);
+    painter.galley(pos, g, pal.sung);
+    painter.text(c + vec2(0.0, base * 0.15), Align2::CENTER_TOP, &now.song.meta.artist, FontId::new(base * 0.5, lyrics_family()), pal.unsung);
     if let Some(k) = &now.song.meta.key {
         let shown = transpose_key(k, key).unwrap_or_else(|| k.clone());
         painter.text(c + vec2(0.0, base * 0.95), Align2::CENTER_TOP, format!("{}  คีย์ {shown}", icons::KEY), FontId::proportional(base * 0.32), ACCENT);
@@ -286,7 +310,7 @@ fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i
 
 fn finished(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, next: Option<&str>) {
     let c = rect.center();
-    painter.text(c - vec2(0.0, base * 0.3), Align2::CENTER_BOTTOM, "จบเพลง", FontId::new(base, lyrics_family()), SUNG);
+    painter.text(c - vec2(0.0, base * 0.3), Align2::CENTER_BOTTOM, "จบเพลง", FontId::new(base, lyrics_family()), palette(painter).sung);
     painter.text(c, Align2::CENTER_TOP, &now.song.meta.title, FontId::new(base * 0.45, lyrics_family()), DIM);
     let hint = match next {
         Some(t) => format!("ถัดไป: {t}"),
@@ -318,7 +342,7 @@ fn idle(painter: &Painter, rect: Rect, no_font: bool) {
     let c = rect.center();
     let size = (rect.height() * 0.1).clamp(28.0, 84.0);
     painter.text(c - vec2(0.0, size * 1.45), Align2::CENTER_BOTTOM, icons::MIC, FontId::proportional(size * 0.9), ACCENT);
-    painter.text(c - vec2(0.0, size * 0.2), Align2::CENTER_BOTTOM, "พร้อมร้อง", FontId::new(size, lyrics_family()), SUNG);
+    painter.text(c - vec2(0.0, size * 0.2), Align2::CENTER_BOTTOM, "พร้อมร้อง", FontId::new(size, lyrics_family()), palette(painter).sung);
     key_hints(painter, c + vec2(0.0, size * 0.1 + 12.0), &[(&["/"], "ค้นหาเพลง"), (&["Ctrl", "K"], "คำสั่งทั้งหมด")]);
     if no_font {
         painter.text(

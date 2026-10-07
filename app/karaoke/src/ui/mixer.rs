@@ -16,8 +16,13 @@ use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, RAISED, SUNG, TEXT};
 use crate::synth::{DRUM_CH, KIT, MELODY_CH, StripId, kit_name, volume_db};
 
 /// Panel height, strips included.
-pub const HEIGHT: f32 = 370.0;
+pub const HEIGHT: f32 = 384.0;
 const H: f32 = 298.0;
+/// Room under the strips for their scrollbar.
+const SCROLLBAR: f32 = 14.0;
+/// Strip width range: wider screens spread them out, narrower ones scroll.
+const MIN_W: f32 = 56.0;
+const MAX_W: f32 = 66.0;
 const GAP: f32 = 3.0;
 const GROUP_GAP: f32 = 10.0;
 const STRIPS: f32 = 16.0 + KIT as f32 + 3.0;
@@ -105,7 +110,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         // Strips on the left, the master effect chain in a sidebar on the right.
         let strips_w = ui.available_width() - effects::SIDEBAR - GROUP_GAP;
-        let body = vec2(ui.available_width(), H + 20.0);
+        let body = vec2(ui.available_width(), H + 20.0 + SCROLLBAR);
         let (row, _) = ui.allocate_exact_size(body, Sense::hover());
         let strips_rect = Rect::from_min_size(row.min, vec2(strips_w, body.y));
         let side_rect = Rect::from_min_max(pos2(row.right() - effects::SIDEBAR, row.top()), row.max);
@@ -114,9 +119,15 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(strips_rect));
         let ui = &mut ui;
         // Fit every strip across; scroll only when it is narrow.
-        let w = ((strips_w - GROUP_GAP * 3.0) / STRIPS - GAP).clamp(35.0, 60.0);
+        // Strips keep a readable width; when they do not fit they scroll
+        // sideways (the mouse wheel scrolls them too, no Shift needed).
+        let w = ((strips_w - GROUP_GAP * 3.0) / STRIPS - GAP).clamp(MIN_W, MAX_W);
         let width = STRIPS * (w + GAP) + GROUP_GAP * 3.0;
-        egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
+        let overflow = width > strips_w + 0.5;
+        ui.style_mut().always_scroll_the_only_direction = true;
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        let bar = if overflow { egui::scroll_area::ScrollBarVisibility::AlwaysVisible } else { egui::scroll_area::ScrollBarVisibility::AlwaysHidden };
+        egui::ScrollArea::horizontal().auto_shrink([false, true]).scroll_bar_visibility(bar).show(ui, |ui| {
             let (area, _) = ui.allocate_exact_size(vec2(width.max(ui.available_width()), H + 20.0), Sense::hover());
             let mut x = area.left();
             for (title, cols) in &groups {

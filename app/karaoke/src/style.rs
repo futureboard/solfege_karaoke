@@ -32,7 +32,14 @@ pub const DANGER: Color32 = Color32::from_rgb(0xff, 0x5d, 0x73);
 
 /// A CJK font installed with the system, if there is one (none is bundled:
 /// they are tens of megabytes).
-fn system_fallback() -> Option<FontData> {
+fn system_fallback() -> Option<Arc<FontData>> {
+    // Read once: these files are large and fonts are rebuilt when the
+    // lyric font changes.
+    static FONT: std::sync::OnceLock<Option<Arc<FontData>>> = std::sync::OnceLock::new();
+    FONT.get_or_init(|| find_system_fallback().map(Arc::new)).clone()
+}
+
+fn find_system_fallback() -> Option<FontData> {
     const CANDIDATES: &[&str] = &[
         // Windows
         "C:\\Windows\\Fonts\\msyh.ttc",
@@ -54,7 +61,28 @@ fn system_fallback() -> Option<FontData> {
     CANDIDATES.iter().find_map(|p| std::fs::read(p).ok()).map(FontData::from_owned)
 }
 
+/// Read a font file for the lyrics, checking that it is a font egui can
+/// use (a bad file would otherwise fail inside the renderer).
+pub fn load_font(path: &std::path::Path) -> Result<FontData, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let face = skrifa::FontRef::from_index(&bytes, 0).map_err(|e| format!("{}: ไม่ใช่ไฟล์ฟอนต์ ({e})", path.display()))?;
+    use skrifa::MetadataProvider as _;
+    if face.charmap().mappings().next().is_none() {
+        return Err(format!("{}: ฟอนต์นี้ไม่มีตัวอักษร", path.display()));
+    }
+    Ok(FontData::from_owned(bytes))
+}
+
+/// The UI fonts, theme and spacing.
 pub fn install(ctx: &egui::Context) {
+    set_fonts(ctx, None);
+    style(ctx);
+}
+
+/// Fonts for the UI and the lyrics; `lyric_font` (see [`load_font`]) goes
+/// first in the lyric family, the bundled fonts stay behind it for any
+/// letter it lacks.
+pub fn set_fonts(ctx: &egui::Context, lyric_font: Option<FontData>) {
     let mut fonts = FontDefinitions::default();
     let add = |fonts: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
         fonts.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));
@@ -66,7 +94,7 @@ pub fn install(ctx: &egui::Context) {
     // Last resort for names in other scripts (Chinese, Japanese, Korean
     // SoundFont and song files): a font the system already has.
     let fallback = system_fallback().map(|data| {
-        fonts.font_data.insert("system-fallback".into(), Arc::new(data));
+        fonts.font_data.insert("system-fallback".into(), data);
         "system-fallback".to_string()
     });
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
@@ -81,9 +109,15 @@ pub fn install(ctx: &egui::Context) {
     // letters fall through to Noto Sans.
     let mut lyrics = vec!["noto-thai-bold".to_string(), "noto-sans-bold".to_string()];
     lyrics.extend(fonts.families[&FontFamily::Proportional].iter().cloned());
+    if let Some(data) = lyric_font {
+        fonts.font_data.insert("lyric-custom".into(), Arc::new(data));
+        lyrics.insert(0, "lyric-custom".into());
+    }
     fonts.families.insert(lyrics_family(), lyrics);
     ctx.set_fonts(fonts);
+}
 
+fn style(ctx: &egui::Context) {
     ctx.all_styles_mut(|style| {
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);

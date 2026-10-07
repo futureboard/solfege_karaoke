@@ -1979,6 +1979,7 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
+ "skrifa",
  "solfege_ncnparser",
  "solfege_sfkar",
  "solfege_songdb",
