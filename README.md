@@ -26,7 +26,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | ![Song search](docs/screenshots/songs.png) | ![Mixer](docs/screenshots/mixer.png) |
 | Song search overlay (`/`) | Mixer panel (`M`) |
 | ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Sounds per instrument](docs/screenshots/instruments.png) |
-| SoundFonts per channel (`S`) | A sound for any GM instrument |
+| Sound settings window (`S`): SoundFont per channel | A sound for any GM instrument |
 | ![Count-in](docs/screenshots/count-in.png) | |
 | Four-beat count-in after a long rest | |
 
@@ -49,8 +49,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   finished lines drift up, the next ones wait below. A title card shows
   before the singing starts and four dots count in, one per beat, after
   a long rest.
-- **Command overlay.** Songs, queue, commands, sounds and settings live
-  in one panel over the stage. Type to filter, arrows to move, Enter to
+- **Command overlay.** Songs, queue, commands and settings live in one
+  panel over the stage. Type to filter, arrows to move, Enter to
   act.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
   one searchable list, with favourites and play counts; songs can be
@@ -59,8 +59,15 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   tempo from 50 % to 150 %; BPM and key are shown live.
 - **Mixer.** Its own panel, docked under the lyrics: all 16 MIDI channels
   (channel 10 is the fader for the whole drum kit), each drum-kit piece,
-  reverb and chorus returns and master, with gain, pan, mute, solo and
-  meters.
+  reverb and chorus returns and master, with gain, pan, mute, solo,
+  reverb / chorus sends and meters. Pan and sends start from the song's
+  own values (MIDI CC 10, 91, 93) and your adjustment goes on top;
+  double-click returns to the song's value. The reverb (room, damping,
+  width) and chorus (rate, depth, delay) are adjustable on their return
+  strips and remembered between runs.
+- **Sound settings window.** SoundFonts, channels, instruments and the
+  drum kit have their own window (`S` or the bar button), separate from
+  the command overlay.
 - **SoundFont rack.** Up to eight SoundFonts (or SFZ instruments). Route
   each MIDI channel to any of them, pin a different sound on a channel,
   or choose the sound of any of the 128 General MIDI instruments, from
@@ -74,7 +81,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `Space` | play / pause | `/` | search songs |
 | `←` `→` | back / forward 5 s | `Q` | queue |
 | `[` `]` | key down / up | `M` | mixer panel |
-| `,` `.` | slower / faster | `S` | sounds (SoundFonts) |
+| `,` `.` | slower / faster | `S` | sound settings window |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
 
@@ -108,7 +115,7 @@ Neither songs nor SoundFonts are part of the repository.
 - **SoundFont.** Any General MIDI `.sf2` works (for example the
   `timgm6mb-soundfont` or `fluid-soundfont-gm` packages on Debian /
   Ubuntu). The player looks in `shared/`, next to the executable and in
-  `/usr/share/sounds/sf2`, or you can add one on the Sounds page.
+  `/usr/share/sounds/sf2`, or you can add one in the sound settings window.
 
 ### Run
 

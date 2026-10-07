@@ -49,10 +49,11 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let mut x = row.right();
     let ctx = ui.ctx().clone();
     // Right to left; overlay pages, plus the mixer panel and full screen.
-    let buttons: [(&str, &str, Option<Page>, bool, &str); 6] = [
+    let buttons: [(&str, &str, Option<Page>, bool, &str); 7] = [
         ("full", icons::FULLSCREEN, None, false, "เต็มจอ (F)"),
         ("settings", icons::SETTINGS, Some(Page::Settings), false, "ตั้งค่า (Ctrl+,)"),
         ("commands", icons::COMMAND, Some(Page::Commands), false, "คำสั่งทั้งหมด (Ctrl+K)"),
+        ("sounds", icons::FILE_MUSIC, None, false, "เสียงและ SoundFont (S)"),
         ("mixer", icons::MIXER, None, app.mixer_open || app.synth.mixer_touched(), "มิกเซอร์ (M)"),
         ("queue", icons::QUEUE, Some(Page::Queue), false, "คิวเพลง (Q)"),
         ("search", icons::SEARCH, Some(Page::Songs), false, "ค้นหาเพลง (/)"),
@@ -63,6 +64,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             match (page, id) {
                 (Some(page), _) => app.open(page),
                 (None, "mixer") => app.mixer_open = !app.mixer_open,
+                (None, "sounds") => app.open_sound(),
                 (None, _) => app.set_stage_only(&ctx, true),
             }
         }

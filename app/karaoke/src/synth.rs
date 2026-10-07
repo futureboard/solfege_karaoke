@@ -379,6 +379,8 @@ impl Synth {
                     pan: (kit.pan + all.pan).clamp(-1.0, 1.0),
                     mute: kit.mute || all.mute,
                     solo: kit.solo || all.solo,
+                    reverb_add: kit.reverb_add + all.reverb_add,
+                    chorus_add: kit.chorus_add + all.chorus_add,
                     ..kit
                 }
                 .clamped()
@@ -727,6 +729,26 @@ impl Synth {
         let preset = self.shared.slots[slot].channels[ch].load().preset;
         let font = self.fonts.get(self.rack[slot].font)?.inst.as_ref()?;
         font.presets.get(preset).map(|p| p.name.as_str())
+    }
+
+    /// The song's own pan for a channel (MIDI CC 10), -1 (left) .. 1 (right).
+    pub fn midi_pan(&self, ch: usize) -> f32 {
+        let Some(slot) = self.slot_of(ch) else { return 0.0 };
+        let raw = self.shared.slots[slot].channels[ch].load().pan as f32;
+        ((raw - 64.0) / 63.0).clamp(-1.0, 1.0)
+    }
+
+    /// The song's own effect sends for a channel, 0..1: reverb (MIDI CC 91)
+    /// and chorus (CC 93). A strip's `reverb` / `chorus` scale these.
+    pub fn midi_sends(&self, ch: usize) -> (f32, f32) {
+        let Some(slot) = self.slot_of(ch) else { return (40.0 / 127.0, 0.0) };
+        let info = self.shared.slots[slot].channels[ch].load();
+        (info.reverb as f32 / 127.0, info.chorus as f32 / 127.0)
+    }
+
+    /// Level going into the reverb and chorus (what the sends add up to).
+    pub fn fx_peak(&self) -> (f32, f32) {
+        (load_peak(&self.shared.fx_peak[0]), load_peak(&self.shared.fx_peak[1]))
     }
 
     /// Font a channel is sounding from right now (an instrument override
@@ -1092,5 +1114,58 @@ mod tests {
         let kick = s.engine_params(StripId::Kit(0));
         assert!(kick.mute && (kick.gain_db + 6.0).abs() < 1e-4);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn midi_pan_and_sends_follow_the_song() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608002.mid");
+        let Some(sf2) = crate::library::find_soundfont().filter(|_| midi.is_file()) else {
+            eprintln!("skipped: needs a .sf2 and the shared/NCN sample library");
+            return;
+        };
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.add_font(sf2).unwrap();
+        let t0 = Instant::now();
+        while s.loading_soundfont() && t0.elapsed() < Duration::from_secs(60) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608002").unwrap();
+        s.play();
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(400) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // This song pans channel 4 right (CC10 = 85) and channel 6 left (40).
+        assert!((s.midi_pan(3) - 21.0 / 63.0).abs() < 0.02, "channel 4: {}", s.midi_pan(3));
+        assert!((s.midi_pan(5) + 24.0 / 63.0).abs() < 0.02, "channel 6: {}", s.midi_pan(5));
+        assert_eq!(s.midi_pan(1), 0.0, "channel 2 stays centred");
+
+        // Effect sends: channel 1 has CC91 = 63, channel 2 is left dry.
+        assert!((s.midi_sends(0).0 - 63.0 / 127.0).abs() < 0.01, "channel 1 reverb: {:?}", s.midi_sends(0));
+        assert_eq!(s.midi_sends(1).0, 0.0, "channel 2 has no reverb send");
+
+        // A send offset puts the dry channel into the reverb.
+        let reverb_in = |s: &mut Synth, ms: u64| {
+            let mut peak = 0.0f32;
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_millis(ms) {
+                s.poll();
+                peak = peak.max(s.fx_peak().0);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            peak
+        };
+        s.seek(20.0);
+        let bass = StripId::Channel(1);
+        let p = s.strip(bass);
+        s.set_strip(bass, StripParams { solo: true, ..p });
+        reverb_in(&mut s, 1000); // earlier sends fade from the meter
+        assert!(reverb_in(&mut s, 400) < 1e-4, "a dry channel sends nothing");
+        let p = s.strip(bass);
+        s.set_strip(bass, StripParams { reverb_add: 0.5, ..p });
+        assert!(reverb_in(&mut s, 1500) > 1e-3, "the offset sends it to the reverb");
     }
 }

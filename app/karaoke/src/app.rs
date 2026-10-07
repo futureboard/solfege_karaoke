@@ -8,11 +8,13 @@ use serde::{Deserialize, Serialize};
 use solfege_sfkar::KarSong;
 use solfege_songdb::Song;
 use solfege_synth::engine::PlayState;
+use solfege_synth::engine::mixer::FxParams;
 
 use crate::library::{self, Library};
 use crate::synth::{InstrumentSound, Synth, SynthEvent};
 use crate::timeline::Timeline;
 use crate::ui::overlay::{Overlay, Page};
+use crate::ui::sound::SoundPanel;
 
 const SETTINGS_KEY: &str = "settings";
 
@@ -33,6 +35,8 @@ pub struct Settings {
     pub drum_lock: Option<(u16, u8)>,
     /// Sounds chosen per GM instrument.
     pub instruments: Vec<SavedInstrument>,
+    /// Reverb and chorus (return levels and their parameters).
+    pub fx: FxParams,
     pub device: Option<String>,
     pub volume: f32,
     /// Lyric size relative to the stage height.
@@ -50,6 +54,7 @@ impl Default for Settings {
             routing: [0; 16],
             drum_lock: None,
             instruments: Vec::new(),
+            fx: FxParams::default(),
             device: None,
             volume: 0.8,
             lyric_scale: 1.0,
@@ -110,6 +115,8 @@ pub struct KaraokeApp {
     pub overlay: Option<Overlay>,
     /// The mixer panel, docked above the bottom bar.
     pub mixer_open: bool,
+    /// The sound settings window (SoundFonts, channels, instruments, drums).
+    pub sound: Option<SoundPanel>,
     pub devices: Vec<String>,
     /// Seek bar position while it is being dragged.
     pub scrub: Option<f64>,
@@ -140,6 +147,7 @@ impl KaraokeApp {
             stage_only: false,
             overlay: None,
             mixer_open: false,
+            sound: None,
             devices: Vec::new(),
             scrub: None,
             pending_song: launch.song,
@@ -166,6 +174,7 @@ impl KaraokeApp {
         }
         app.synth.set_routing(app.settings.routing);
         app.synth.set_drum_lock(app.settings.drum_lock);
+        app.synth.set_fx(app.settings.fx);
         for saved in app.settings.instruments.clone() {
             if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
                 let sound = InstrumentSound { font, bank: saved.bank, program: saved.program };
@@ -348,12 +357,19 @@ impl KaraokeApp {
     }
 
     pub fn open(&mut self, page: Page) {
+        self.sound = None;
         self.overlay = Some(Overlay::new(page));
+    }
+
+    /// Open the sound settings window (closes the overlay).
+    pub fn open_sound(&mut self) {
+        self.overlay = None;
+        self.sound = Some(SoundPanel::new());
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
         // The overlay handles its own keys.
-        if self.overlay.is_some() || ctx.egui_wants_keyboard_input() {
+        if self.overlay.is_some() || self.sound.is_some() || ctx.egui_wants_keyboard_input() {
             return;
         }
         use egui::{Key, Modifiers};
@@ -376,7 +392,7 @@ impl KaraokeApp {
             return;
         }
         if pressed(Key::S) {
-            return self.open(Page::Sounds);
+            return self.open_sound();
         }
         if pressed(Key::Space) {
             self.synth.toggle();
@@ -434,6 +450,7 @@ impl eframe::App for KaraokeApp {
         self.settings.soundfonts = self.synth.font_paths();
         self.settings.routing = self.synth.routing();
         self.settings.drum_lock = self.synth.drum_lock();
+        self.settings.fx = self.synth.mixer().fx;
         let paths = self.synth.font_paths();
         self.settings.instruments = self
             .synth

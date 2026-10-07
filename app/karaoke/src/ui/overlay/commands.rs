@@ -123,7 +123,7 @@ impl Cmd {
             Cmd::OpenLibrary => "เพิ่มโฟลเดอร์เพลง (NCN / .sfkar)…".into(),
             Cmd::Rescan => "สแกนคลังเพลงใหม่".into(),
             Cmd::ChooseSoundFont => "เพิ่ม SoundFont / SFZ…".into(),
-            Cmd::Sounds => "เสียง: SoundFont ของแต่ละแชนแนล".into(),
+            Cmd::Sounds => "เสียงและ SoundFont (แชนแนล, เครื่องดนตรี, ชุดกลอง)".into(),
         }
     }
 
@@ -272,9 +272,12 @@ pub fn run(app: &mut KaraokeApp, ov: &mut Overlay, cmd: Cmd, ctx: &egui::Context
             Outcome::Close
         }
         Cmd::ChooseSoundFont => {
-            ov.browse(Target::SoundFont, app.synth.fonts().last().map(|f| f.path.clone()));
-            Outcome::Stay
+            app.sound = Some(crate::ui::sound::SoundPanel::adding(app.synth.fonts().last().map(|f| f.path.clone())));
+            Outcome::Close
         }
-        Cmd::Sounds => Outcome::Goto(Page::Sounds),
+        Cmd::Sounds => {
+            app.sound = Some(crate::ui::sound::SoundPanel::new());
+            Outcome::Close
+        }
     }
 }
