@@ -121,9 +121,10 @@ impl KaraokeApp {
         if let Some(e) = app.synth.output_error.clone() {
             app.toast_error(format!("ไม่มีเสียงออก: {e}"));
         }
-        // The saved rack, else an older single font, else one found on disk.
+        // The saved rack, else an older single font, else (first run only)
+        // one found on disk. A rack emptied on purpose stays empty.
         let mut fonts = std::mem::take(&mut app.settings.soundfonts);
-        if fonts.is_empty() {
+        if fonts.is_empty() && !app.config.existed() {
             fonts.extend(app.settings.soundfont.take().filter(|p| p.is_file()).or_else(library::find_soundfont));
         }
         for path in fonts {

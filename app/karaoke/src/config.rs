@@ -169,6 +169,11 @@ impl ConfigFile {
         }
     }
 
+    /// Settings were read from the file (it is not the first run).
+    pub fn existed(&self) -> bool {
+        !self.written.is_empty()
+    }
+
     /// Write the settings if they changed since the last write (atomic:
     /// a temporary file renamed over the old one).
     pub fn save(&mut self, settings: &Settings) -> Result<(), String> {
@@ -201,6 +206,7 @@ mod tests {
         let legacy = Settings { volume: 0.5, ..Settings::default() };
         let (mut s, err) = file.load(Some(legacy));
         assert!(err.is_none());
+        assert!(!file.existed(), "first run");
         assert_eq!(s.volume, 0.5, "first run takes the old settings");
         s.soundfonts = vec![PathBuf::from("/fonts/gm.sf2")];
         s.drum_lock = Some((128, 16));
@@ -213,7 +219,9 @@ mod tests {
         file.save(&s).unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), modified, "unchanged: not rewritten");
 
-        let (back, _) = ConfigFile::new(Some(path.clone())).load(None);
+        let mut again = ConfigFile::new(Some(path.clone()));
+        let (back, _) = again.load(None);
+        assert!(again.existed(), "the file is there now");
         assert_eq!(back.to_json(), s.to_json());
         assert_eq!(back.fx.reverb_room, 0.9);
 

@@ -188,36 +188,39 @@ fn font_badge(ui: &mut egui::Ui, index: usize, size: f32) {
     ui.painter().text(rect.center(), Align2::CENTER_CENTER, (index + 1).to_string(), FontId::proportional(size * 0.5), c);
 }
 
-/// One chip per loaded font (plus an optional "none" chip); returns the
-/// new choice when one was clicked.
-fn font_chips(ui: &mut egui::Ui, app: &KaraokeApp, current: Option<usize>, none: Option<&str>) -> Option<Option<usize>> {
-    let mut out = None;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        let mut chip = |ui: &mut egui::Ui, key: Option<usize>, label: String, color: Color32, tip: String| {
-            let on = current == key;
-            let g = ui.painter().layout_no_wrap(label.clone(), FontId::proportional(12.0), TEXT);
-            let w = (g.size().x + 18.0).max(28.0);
-            let (rect, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
-            let p = ui.painter();
-            let fill = if on { color.gamma_multiply(0.85) } else if resp.hovered() { color.gamma_multiply(0.18) } else { INK };
-            p.rect_filled(rect, CornerRadius::same(12), fill);
-            if !on {
-                p.rect_stroke(rect, CornerRadius::same(12), Stroke::new(1.0, color.gamma_multiply(0.45)), egui::StrokeKind::Inside);
-            }
-            p.text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(12.0), if on { INK } else { color });
-            if resp.on_hover_text(tip).clicked() && !on {
-                out = Some(key);
-            }
-        };
+/// SoundFont drop-down: each font with its number, colour and file name,
+/// plus an optional "none" entry. Fonts still loading or broken are listed
+/// but cannot be picked. Returns the new choice when it changed.
+fn font_picker(
+    ui: &mut egui::Ui,
+    app: &KaraokeApp,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    current: Option<usize>,
+    none: Option<&str>,
+    width: f32,
+) -> Option<Option<usize>> {
+    let label = |i: usize, name: &str| RichText::new(format!("{}  {}  ·  {}", icons::FILE_MUSIC, i + 1, name)).color(font_color(i));
+    let shown = match current {
+        Some(i) => app.synth.fonts().get(i).map_or_else(|| RichText::new("—"), |f| label(i, &f.name())),
+        None => RichText::new(none.unwrap_or("—")).color(DIM),
+    };
+    let mut pick = current;
+    egui::ComboBox::from_id_salt(id).selected_text(shown).width(width).height(320.0).show_ui(ui, |ui| {
         if let Some(none) = none {
-            chip(ui, None, none.to_string(), DIM, none.to_string());
+            ui.selectable_value(&mut pick, None, RichText::new(none).color(DIM));
         }
-        for (i, f) in app.synth.fonts().iter().enumerate().filter(|(_, f)| f.inst.is_some()) {
-            chip(ui, Some(i), (i + 1).to_string(), font_color(i), f.name());
+        for (i, f) in app.synth.fonts().iter().enumerate() {
+            let state = if f.loading() { Some("กำลังโหลด…") } else if f.error.is_some() { Some("โหลดไม่ได้") } else { None };
+            let text = match state {
+                Some(state) => RichText::new(format!("{}  {}  ·  {}   ({state})", icons::FILE_MUSIC, i + 1, f.name())).color(DIM),
+                None => label(i, &f.name()),
+            };
+            ui.add_enabled_ui(f.inst.is_some(), |ui| {
+                ui.selectable_value(&mut pick, Some(i), text);
+            });
         }
     });
-    out
+    (pick != current).then_some(pick)
 }
 
 // ------------------------------------------------------------------ fonts
@@ -371,7 +374,7 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
                             ui.add(egui::Label::new(RichText::new(name).color(if pinned { SUNG } else if active { TEXT } else { DIM })).truncate());
                         });
 
-                        if let Some(Some(f)) = font_chips(ui, app, Some(font), None) {
+                        if let Some(Some(f)) = font_picker(ui, app, ("ch-font", ch), Some(font), None, 190.0) {
                             app.synth.set_route(ch, f);
                         }
 
@@ -486,7 +489,7 @@ fn instruments_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::
                         ui.label(RichText::new(format!("{:03}  ·  {}", program + 1, gm::FAMILIES[program as usize / 8])).size(11.0).color(DIM));
                         ui.label(RichText::new(gm::INSTRUMENTS[program as usize]).color(if current.is_some() { SUNG } else { TEXT }));
                     });
-                    if let Some(f) = font_chips(ui, app, current.map(|s| s.font), Some("ตามแชนแนล")) {
+                    if let Some(f) = font_picker(ui, app, ("gm-font", program), current.map(|s| s.font), Some("ตามแชนแนล"), 250.0) {
                         change = Some((program, f.and_then(|f| default_sound(app, f, program))));
                     }
                     if let Some(sound) = current {
@@ -557,7 +560,7 @@ fn piece_rows(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                             let note = if piece.is_some() { sound } else { format!("ตามชุดหลัก · {sound}") };
                             ui.add(egui::Label::new(RichText::new(note).size(11.0).color(if piece.is_some() { SUNG } else { DIM })).truncate());
                         });
-                        if let Some(choice) = font_chips(ui, app, piece.map(|s| s.font), Some("ตามชุดหลัก")) {
+                        if let Some(choice) = font_picker(ui, app, ("piece-font", g), piece.map(|s| s.font), Some("ตามชุดหลัก"), 250.0) {
                             let sound = choice.and_then(|font| default_kit(app, font));
                             app.synth.set_piece(g, sound);
                         }
@@ -610,7 +613,7 @@ fn drums_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("SoundFont").color(DIM));
         let font = app.synth.routing()[DRUM_CH];
-        if let Some(Some(f)) = font_chips(ui, app, Some(font), None) {
+        if let Some(Some(f)) = font_picker(ui, app, "drum-font", Some(font), None, 250.0) {
             app.synth.set_route(DRUM_CH, f);
         }
     });
