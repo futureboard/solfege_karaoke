@@ -243,3 +243,29 @@ fn program_filter_splits_a_channel_between_slots() {
     assert_eq!((voices(0), voices(1)), (1, 1));
     assert_eq!(shared.slots[1].channels[0].load().preset, 2);
 }
+
+#[test]
+fn drum_keys_split_the_kit_between_slots() {
+    let (tx, rx) = crossbeam_channel::bounded(64);
+    let (gtx, _g) = crossbeam_channel::bounded(64);
+    let shared = Arc::new(Shared::new());
+    let mut e = Engine::new(48000.0, rx, gtx, shared.clone());
+    // Slot 0 plays the kick (keys 35, 36) on channel 10, slot 1 the rest.
+    let kick = (1u128 << 35) | (1u128 << 36);
+    let a = SlotParams { channels: 1 << 9, drum_keys: kick, ..SlotParams::default() };
+    let b = SlotParams { channels: 1 << 9, drum_keys: !kick, ..SlotParams::default() };
+    tx.send(Command::AddSlot(Box::new(Slot::new(gm_bank(), 0, a)))).unwrap();
+    tx.send(Command::AddSlot(Box::new(Slot::new(gm_bank(), 0, b)))).unwrap();
+    let voices = |s: usize| shared.slots[s].voices.load(std::sync::atomic::Ordering::Relaxed);
+
+    tx.send(Command::Midi([0x99, 36, 100])).unwrap();
+    run(&mut e);
+    assert_eq!((voices(0), voices(1)), (1, 0), "kick");
+    tx.send(Command::Midi([0x99, 38, 100])).unwrap();
+    run(&mut e);
+    assert_eq!((voices(0), voices(1)), (1, 1), "snare");
+    // Melodic channels ignore the drum key filter.
+    tx.send(Command::Midi([0x90, 60, 100])).unwrap();
+    run(&mut e);
+    assert_eq!(voices(0), 1, "slot 0 does not receive channel 1");
+}

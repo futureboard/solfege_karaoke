@@ -35,7 +35,11 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         }
         app.synth.toggle();
     }
-    if ghost(ui, "next", pos2(row.left() + 58.0, y), icons::NEXT, false, !app.queue.is_empty())
+    let loaded = app.synth.state() != PlayState::Empty && app.synth.state() != PlayState::Stopped;
+    if ghost(ui, "stop", pos2(row.left() + 56.0, y), icons::STOP, false, loaded).on_hover_text("หยุดและกลับไปต้นเพลง (Shift+Space)").clicked() {
+        app.stop();
+    }
+    if ghost(ui, "next", pos2(row.left() + 88.0, y), icons::NEXT, false, !app.queue.is_empty())
         .on_hover_text("เพลงถัดไปในคิว (N)")
         .clicked()
     {
@@ -43,7 +47,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     }
     let t = app.scrub.unwrap_or_else(|| app.synth.time());
     let p = ui.painter();
-    let now_r = p.text(pos2(row.left() + 86.0, y), Align2::LEFT_CENTER, clock(t), FontId::monospace(13.0), TEXT);
+    let now_r = p.text(pos2(row.left() + 116.0, y), Align2::LEFT_CENTER, clock(t), FontId::monospace(13.0), TEXT);
     let time_r = p.text(pos2(now_r.right(), y), Align2::LEFT_CENTER, format!(" / {}", clock(app.synth.duration())), FontId::monospace(13.0), DIM);
     let left_edge = time_r.right() + 24.0;
 

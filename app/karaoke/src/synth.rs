@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use solfege_synth::audio::{self, AudioOut};
-use solfege_synth::engine::mixer::{DRUM_STRIP_BASE, FxParams, GM_GROUP_NAMES, StripParams};
+use solfege_synth::engine::mixer::{DRUM_STRIP_BASE, FxParams, GM_GROUP_NAMES, NoteGroups, StripParams};
 use solfege_synth::engine::{Command, Engine, Garbage, NO_PRESET, PlayState, Shared, Slot, SlotParams, load_peak};
 use solfege_synth::instrument::{self, Instrument, db_to_gain};
 use solfege_synth::smf;
@@ -35,6 +35,12 @@ pub const KIT: usize = 6;
 
 pub fn kit_name(group: usize) -> &'static str {
     GM_GROUP_NAMES[group]
+}
+
+/// Channel 10 keys of a kit piece (GM key map), bit n = key n.
+pub fn piece_keys(group: usize) -> u128 {
+    let groups = NoteGroups::gm();
+    (0..128).filter(|&k| groups.map[k] as usize == group).fold(0u128, |m, k| m | (1u128 << k))
 }
 
 /// Mixer settings the app owns and replays into every new engine.
@@ -100,11 +106,15 @@ struct RackSlot {
     programs: u128,
     /// Program -> preset of this font, for instrument overrides.
     map: Option<Box<[u16; 128]>>,
+    /// Channel 10 keys this slot plays (see `SlotParams::drum_keys`).
+    keys: u128,
+    /// Kit locked on channel 10, for the slot of a separate kit piece.
+    lock: Option<usize>,
 }
 
 impl RackSlot {
     fn plain(font: usize, channels: u16, drums: bool) -> Self {
-        Self { font, channels, drums, filtered: 0, programs: u128::MAX, map: None }
+        Self { font, channels, drums, filtered: 0, programs: u128::MAX, map: None, keys: u128::MAX, lock: None }
     }
 }
 
@@ -150,6 +160,9 @@ pub struct Synth {
     drum_lock: Option<(u16, u8)>,
     /// Sound per GM instrument, whichever channel plays it.
     instruments: BTreeMap<u8, InstrumentSound>,
+    /// A kit (font and drum preset) of its own per kit piece; `None`
+    /// plays the piece from channel 10's kit.
+    pieces: [Option<InstrumentSound>; KIT],
     /// Engine slots as last sent.
     rack: Vec<RackSlot>,
     song: Option<Arc<smf::Song>>,
@@ -183,6 +196,7 @@ impl Synth {
             pins: [None; 16],
             drum_lock: None,
             instruments: BTreeMap::new(),
+            pieces: [None; KIT],
             rack: Vec::new(),
             song: None,
             state: PlayState::Empty,
@@ -262,8 +276,22 @@ impl Synth {
         (0..16).filter(|&c| self.pins[c].is_some()).fold(0u16, |m, c| m | (1 << c))
     }
 
+    /// Kit pieces with a sound of their own that can sound, as
+    /// (font, preset) -> keys.
+    fn resolved_pieces(&self) -> BTreeMap<(usize, usize), u128> {
+        let mut out = BTreeMap::new();
+        for (g, s) in self.pieces.iter().enumerate() {
+            let Some(s) = s else { continue };
+            let Some(preset) = self.fonts.get(s.font).and_then(|f| f.inst.as_ref()).and_then(|i| i.find_preset(s.bank, s.program)) else { continue };
+            *out.entry((s.font, preset)).or_insert(0) |= piece_keys(g);
+        }
+        out
+    }
+
     fn layout(&self) -> Vec<RackSlot> {
         let overrides = self.resolved_instruments();
+        let pieces = self.resolved_pieces();
+        let separate: u128 = pieces.values().fold(0, |m, k| m | k);
         let overridden: u128 = overrides.keys().fold(0, |m, &p| m | (1u128 << p));
         let melodic = !(1u16 << DRUM_CH);
         let split = if overridden == 0 { 0 } else { melodic & !self.pinned() };
@@ -274,7 +302,7 @@ impl Synth {
                 out.push(RackSlot { filtered: channels & split, programs: !overridden, ..RackSlot::plain(font, channels, false) });
             }
             if self.effective_font(DRUM_CH) == Some(font) {
-                out.push(RackSlot::plain(font, 1 << DRUM_CH, true));
+                out.push(RackSlot { keys: !separate, ..RackSlot::plain(font, 1 << DRUM_CH, true) });
             }
         }
         // One slot per font that overrides instruments, over every channel
@@ -290,8 +318,12 @@ impl Synth {
                         programs |= 1u128 << prog;
                     }
                 }
-                out.push(RackSlot { font, channels: split, drums: false, filtered: split, programs, map: Some(map) });
+                out.push(RackSlot { filtered: split, programs, map: Some(map), ..RackSlot::plain(font, split, false) });
             }
+        }
+        // One slot per separate kit, playing only its pieces' keys.
+        for ((font, preset), keys) in pieces {
+            out.push(RackSlot { keys, lock: Some(preset), ..RackSlot::plain(font, 1 << DRUM_CH, true) });
         }
         out
     }
@@ -302,6 +334,7 @@ impl Synth {
             transpose: if r.drums { 0 } else { self.key },
             filtered: r.filtered,
             programs: r.programs,
+            drum_keys: r.keys,
             ..SlotParams::default()
         }
     }
@@ -331,6 +364,11 @@ impl Synth {
         for ch in 0..16 {
             self.send_pin(ch);
         }
+        for (slot, r) in self.rack.iter().enumerate() {
+            if let Some(preset) = r.lock {
+                self.send(Command::SetChannelPreset { slot, ch: DRUM_CH as u8, preset: Some(preset) });
+            }
+        }
         // Program changes already played must reach the new slots.
         if self.state == PlayState::Playing || self.state == PlayState::Paused {
             self.send(Command::Seek(self.time()));
@@ -340,7 +378,7 @@ impl Synth {
     /// Engine slot of the font `ch` is routed to (where its pin lives).
     fn slot_of(&self, ch: usize) -> Option<usize> {
         let font = self.effective_font(ch)?;
-        self.rack.iter().position(|r| r.font == font && r.map.is_none() && r.drums == (ch == DRUM_CH))
+        self.rack.iter().position(|r| r.font == font && r.map.is_none() && r.lock.is_none() && r.drums == (ch == DRUM_CH))
     }
 
     /// Every engine slot that can sound `ch`.
@@ -352,7 +390,8 @@ impl Synth {
     fn engine_strips(&self, id: StripId) -> Vec<(usize, usize)> {
         match id {
             StripId::Channel(ch) => self.slots_of(ch).map(|s| (s, ch)).collect(),
-            StripId::Kit(g) => self.slot_of(DRUM_CH).map(|s| (s, DRUM_STRIP_BASE + g)).into_iter().collect(),
+            // Every slot on channel 10: the kit and any separate pieces.
+            StripId::Kit(g) => self.rack.iter().enumerate().filter(|(_, r)| r.drums).map(|(s, _)| (s, DRUM_STRIP_BASE + g)).collect(),
         }
     }
 
@@ -442,6 +481,13 @@ impl Synth {
         for s in self.instruments.values_mut() {
             if s.font > index {
                 s.font -= 1;
+            }
+        }
+        for p in &mut self.pieces {
+            match p {
+                Some(s) if s.font == index => *p = None,
+                Some(s) if s.font > index => s.font -= 1,
+                _ => {}
             }
         }
         self.fonts.remove(index);
@@ -547,6 +593,32 @@ impl Synth {
     pub fn set_drum_lock(&mut self, lock: Option<(u16, u8)>) {
         self.drum_lock = lock;
         self.send_pin(DRUM_CH);
+    }
+
+    /// The kit each piece plays from (`None` = channel 10's kit).
+    pub fn pieces(&self) -> &[Option<InstrumentSound>; KIT] {
+        &self.pieces
+    }
+
+    /// Give a kit piece (kick, snare, ...) a kit of its own, from any font,
+    /// or `None` to play it from channel 10's kit again.
+    pub fn set_piece(&mut self, group: usize, sound: Option<InstrumentSound>) {
+        if group >= KIT {
+            return;
+        }
+        self.pieces[group] = sound.filter(|s| s.font < self.fonts.len());
+        self.rebuild();
+    }
+
+    /// Name of the kit a piece sounds from now.
+    pub fn piece_sound(&self, group: usize) -> Option<String> {
+        match self.pieces.get(group).copied().flatten() {
+            Some(s) => {
+                let inst = self.fonts.get(s.font)?.inst.as_ref()?;
+                Some(inst.presets.get(inst.find_preset(s.bank, s.program)?)?.name.clone())
+            }
+            None => self.channel_sound(DRUM_CH).map(str::to_string),
+        }
     }
 
     pub fn instruments(&self) -> &BTreeMap<u8, InstrumentSound> {
@@ -1057,6 +1129,99 @@ mod tests {
         // Removing the second font sends channel 1 back to the first.
         s.remove_font(1);
         assert_eq!(s.routing()[0], 0);
+        assert_eq!(s.rack.len(), 2);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn stop_goes_back_to_the_start_without_ending_the_song() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608001.mid");
+        if !midi.is_file() {
+            eprintln!("skipped: needs the shared/NCN sample library");
+            return;
+        }
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
+        s.play();
+        s.seek(30.0);
+        let wait = |s: &mut Synth, ms: u64| {
+            let mut events = Vec::new();
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_millis(ms) {
+                events.extend(s.poll());
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            events
+        };
+        wait(&mut s, 300);
+        assert!(s.time() > 29.0, "playing from 30 s: {}", s.time());
+        s.stop();
+        let events = wait(&mut s, 400);
+        assert_eq!(s.state(), PlayState::Stopped);
+        assert!(!events.iter().any(|e| matches!(e, SynthEvent::Ended)), "a stop is not the end of the song");
+        assert!(s.time() < 0.5, "back at the start: {}", s.time());
+        s.play();
+        wait(&mut s, 400);
+        assert_eq!(s.state(), PlayState::Playing);
+        assert!(s.time() > 0.1 && s.time() < 2.0, "plays again from the start: {}", s.time());
+    }
+
+    #[test]
+    fn kit_pieces_play_from_their_own_font() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608001.mid");
+        let Some(sf2) = crate::library::find_soundfont().filter(|_| midi.is_file()) else {
+            eprintln!("skipped: needs a .sf2 and the shared/NCN sample library");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("karaoke-pieces-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let second = dir.join("second.sf2");
+        std::fs::copy(&sf2, &second).unwrap();
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.add_font(sf2).unwrap();
+        s.add_font(second).unwrap();
+        let t0 = Instant::now();
+        while s.loading_soundfont() && t0.elapsed() < Duration::from_secs(60) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(s.rack.len(), 2, "melodic and drum slots of font 1");
+
+        // The kick from font 2's Room kit (128:8).
+        let room = InstrumentSound { font: 1, bank: 128, program: 8 };
+        s.set_piece(0, Some(room));
+        assert_eq!(s.rack.len(), 3);
+        let piece = s.rack.iter().position(|r| r.lock.is_some()).unwrap();
+        assert_eq!(s.rack[piece].font, 1);
+        assert_eq!(s.rack[piece].keys, piece_keys(0));
+        let main = s.slot_of(DRUM_CH).unwrap();
+        assert_eq!(s.rack[main].keys & piece_keys(0), 0, "the main kit leaves the kick out");
+        assert_eq!(s.piece_sound(0).as_deref(), Some("Room"));
+        assert!(piece_keys(0) & (1u128 << 36) != 0 && piece_keys(1) & (1u128 << 38) != 0);
+        // Kit strips reach both drum slots.
+        assert_eq!(s.engine_strips(StripId::Kit(0)).len(), 2);
+
+        // Kicks sound on the piece's slot.
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
+        s.play();
+        s.seek(20.0);
+        let mut most = 0;
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(3000) {
+            s.poll();
+            most = most.max(s.shared.slots[piece].voices.load(Ordering::Relaxed));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(most > 0, "the separate kick slot plays");
+
+        // Back to channel 10's kit; removing the font also clears it.
+        s.set_piece(0, None);
+        assert_eq!(s.rack.len(), 2);
+        s.set_piece(1, Some(room));
+        s.remove_font(1);
+        assert!(s.pieces().iter().all(Option::is_none));
         assert_eq!(s.rack.len(), 2);
         std::fs::remove_dir_all(dir).ok();
     }

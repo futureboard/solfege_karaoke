@@ -177,6 +177,7 @@ impl Cmd {
     pub fn keys(self) -> &'static [&'static str] {
         match self {
             Cmd::PlayPause => &["Space"],
+            Cmd::Stop => &["Shift", "Space"],
             Cmd::Next => &["N"],
             Cmd::KeyUp => &["]"],
             Cmd::KeyDown => &["["],
@@ -232,7 +233,7 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
             Outcome::Close
         }
         Cmd::Stop => {
-            app.synth.stop();
+            app.stop();
             Outcome::Close
         }
         Cmd::Next => {

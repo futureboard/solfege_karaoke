@@ -126,7 +126,7 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
     let mut outcome = Outcome::Stay;
     let key = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_key(m, k));
     // Esc first closes an open drop-down (egui handles that), then the overlay.
-    if !ctx.any_popup_open() && key(Modifiers::NONE, Key::Escape) {
+    if !crate::ui::popup_open(ctx) && key(Modifiers::NONE, Key::Escape) {
         return Outcome::Close;
     }
     if key(Modifiers::SHIFT, Key::Tab) {

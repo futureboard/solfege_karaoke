@@ -520,6 +520,9 @@ impl Slot {
         if key < p.key_lo || key > p.key_hi || vel < p.vel_lo || vel > p.vel_hi {
             return;
         }
+        if self.ch[ch as usize].drum && p.drum_keys & (1u128 << (key & 127)) == 0 {
+            return;
+        }
         self.note_vel[ch as usize][key as usize] = vel;
         self.seq = self.seq.wrapping_add(1);
         let rnd = self.random();

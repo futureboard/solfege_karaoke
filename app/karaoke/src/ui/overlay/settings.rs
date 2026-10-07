@@ -9,8 +9,9 @@ use crate::dialog::Pick;
 use crate::icons;
 use crate::style::{DANGER, DIM, TEXT};
 
-const KEYS: [(&str, &str); 16] = [
+const KEYS: [(&str, &str); 17] = [
     ("Space", "เล่น / พัก"),
+    ("Shift Space", "หยุด (กลับไปต้นเพลง)"),
     ("Left  Right", "ถอย / ข้าม 5 วินาที"),
     ("[  ]", "ลด / เพิ่มคีย์"),
     (",  .", "ช้าลง / เร็วขึ้น"),

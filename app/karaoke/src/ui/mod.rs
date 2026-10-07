@@ -35,6 +35,17 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     overlay::show(app, &ctx);
     sound::show(app, &ctx);
     toasts(app, &ctx);
+    let open = ctx.any_popup_open();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(POPUP_OPEN), open));
+}
+
+const POPUP_OPEN: &str = "popup-open-last-frame";
+
+/// A menu or drop-down is open (or was at the end of the last frame, as
+/// egui closes it on Esc before panels see the key). Esc and clicks then
+/// belong to the popup, not to the panel under it.
+pub fn popup_open(ctx: &egui::Context) -> bool {
+    ctx.any_popup_open() || ctx.data(|d| d.get_temp::<bool>(egui::Id::new(POPUP_OPEN))).unwrap_or(false)
 }
 
 fn toasts(app: &KaraokeApp, ctx: &egui::Context) {

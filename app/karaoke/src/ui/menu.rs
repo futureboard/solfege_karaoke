@@ -53,6 +53,10 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     if item_if(ui, loaded, icon, label, "Space") {
         app.synth.toggle();
     }
+    let stopped = app.synth.state() == PlayState::Stopped;
+    if item_if(ui, loaded && !stopped, icons::STOP, "หยุด (กลับไปต้นเพลง)", "Shift Space") {
+        app.stop();
+    }
     if item_if(ui, loaded, icons::RESTART, "เริ่มเพลงนี้ใหม่", "") {
         app.synth.seek(0.0);
         app.synth.play();

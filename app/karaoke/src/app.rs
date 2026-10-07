@@ -8,7 +8,7 @@ use solfege_sfkar::KarSong;
 use solfege_songdb::Song;
 use solfege_synth::engine::PlayState;
 
-use crate::config::{self, ConfigFile, SavedInstrument, Settings};
+use crate::config::{self, ConfigFile, SavedInstrument, SavedPiece, Settings};
 use crate::dialog::{Dialogs, Pick};
 use crate::library::{self, Library};
 use crate::synth::{InstrumentSound, Synth, SynthEvent};
@@ -121,9 +121,10 @@ impl KaraokeApp {
         if let Some(e) = app.synth.output_error.clone() {
             app.toast_error(format!("ไม่มีเสียงออก: {e}"));
         }
-        // The saved rack, else an older single font, else one found on disk.
+        // The saved rack, else an older single font, else (first run only)
+        // one found on disk. A rack emptied on purpose stays empty.
         let mut fonts = std::mem::take(&mut app.settings.soundfonts);
-        if fonts.is_empty() {
+        if fonts.is_empty() && !app.config.existed() {
             fonts.extend(app.settings.soundfont.take().filter(|p| p.is_file()).or_else(library::find_soundfont));
         }
         for path in fonts {
@@ -143,6 +144,11 @@ impl KaraokeApp {
             if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
                 let sound = InstrumentSound { font, bank: saved.bank, program: saved.program };
                 app.synth.set_instrument(saved.instrument, Some(sound));
+            }
+        }
+        for saved in app.settings.pieces.clone() {
+            if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
+                app.synth.set_piece(saved.piece, Some(InstrumentSound { font, bank: saved.bank, program: saved.program }));
             }
         }
         if app.synth.fonts().is_empty() {
@@ -229,6 +235,15 @@ impl KaraokeApp {
         } else {
             self.toast(format!("เพิ่มในคิว: {}", entry.title));
             self.queue.push_back(entry);
+        }
+    }
+
+    /// Stop and go back to the start of the song; it stays loaded, so
+    /// Play starts it again. The queue does not move on.
+    pub fn stop(&mut self) {
+        self.synth.stop();
+        if let Some(n) = &mut self.now {
+            n.finished = false;
         }
     }
 
@@ -372,6 +387,9 @@ impl KaraokeApp {
         if pressed(Key::L) {
             self.toggle_lyric_mode();
         }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Space)) {
+            self.stop();
+        }
         if pressed(Key::Space) {
             self.synth.toggle();
         }
@@ -461,6 +479,16 @@ impl eframe::App for KaraokeApp {
             .iter()
             .filter_map(|(&instrument, s)| {
                 Some(SavedInstrument { instrument, font: paths.get(s.font)?.clone(), bank: s.bank, program: s.program })
+            })
+            .collect();
+        self.settings.pieces = self
+            .synth
+            .pieces()
+            .iter()
+            .enumerate()
+            .filter_map(|(piece, s)| {
+                let s = s.as_ref()?;
+                Some(SavedPiece { piece, font: paths.get(s.font)?.clone(), bank: s.bank, program: s.program })
             })
             .collect();
         if let Err(e) = self.config.save(&self.settings) {
