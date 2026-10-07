@@ -67,8 +67,9 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   in after a long rest, and the time of day sits in the corner.
 - **Guide melody off** (`V`). Mutes MIDI channel 9, where NCN songs
   carry the vocal melody, in every song until turned back on.
-- **Command overlay.** Songs, queue, commands and settings live in one
-  panel over the stage.
+- **Overlays.** Songs and queue share one panel over the stage (`/`,
+  `Q`, `Tab` between them); all commands (`Ctrl K`), settings (`Ctrl ,`)
+  and About open as popups of their own.
 - **Context menus.** Right click the stage or the bottom bar for
   playback, key and tempo, every panel and full screen; right click a
   song, a queued song, a mixer strip, a SoundFont or a channel for what
@@ -125,8 +126,9 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
 | right click | context menu | | |
 
-In the overlay: `Enter` reserves a song, `Shift Enter` sings it now,
-`Ctrl D` marks a favourite, `Tab` switches page and `Esc` closes.
+In the song / queue panel: `Enter` reserves a song, `Shift Enter` sings it
+now, `Ctrl D` marks a favourite, `Tab` switches between songs and queue and
+`Esc` closes; `Esc` closes any popup.
 
 ## Getting started
 

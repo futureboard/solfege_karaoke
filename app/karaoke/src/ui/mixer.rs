@@ -16,7 +16,7 @@ use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, RAISED, SUNG, TEXT};
 use crate::synth::{DRUM_CH, KIT, MELODY_CH, StripId, kit_name, volume_db};
 
 /// Panel height, strips included.
-pub const HEIGHT: f32 = 364.0;
+pub const HEIGHT: f32 = 370.0;
 const H: f32 = 298.0;
 const GAP: f32 = 3.0;
 const GROUP_GAP: f32 = 10.0;
@@ -82,7 +82,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let master = vec![Column { kind: Kind::Master, number: icons::VOLUME.into(), name: "Master".into(), used: true }];
     let groups: [(&str, Vec<Column>); 4] = [("แชนแนล 1–16", channels), ("ชุดกลอง (ช่อง 10)", kit), ("เอฟเฟกต์", fx), ("รวม", master)];
 
-    egui::Frame::new().inner_margin(Margin { left: 16, right: 16, top: 10, bottom: 10 }).show(ui, |ui| {
+    egui::Frame::new().inner_margin(Margin { left: 16, right: 16, top: 16, bottom: 10 }).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.label(egui::RichText::new(format!("{}  มิกเซอร์", icons::MIXER)).strong().color(TEXT));

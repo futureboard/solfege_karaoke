@@ -1,5 +1,6 @@
 //! The command overlay: one panel over the stage for everything that is not
-//! singing. Pages: songs, queue, commands, settings and about (files and folders
+//! singing. Songs and queue are tabs of one panel; commands, settings and
+//! about open as popups of their own (files and folders
 //! are picked with the system's own dialogs). List pages share one keyboard model:
 //! type to filter, Up / Down to move, Enter to act, Shift+Enter for the
 //! second action, Tab to switch page, Esc to close.
@@ -25,13 +26,19 @@ pub enum Page {
     About,
 }
 
-const TABS: [(Page, &str); 5] = [
-    (Page::Songs, "เพลง"),
-    (Page::Queue, "คิว"),
-    (Page::Commands, "คำสั่ง"),
-    (Page::Settings, "ตั้งค่า"),
-    (Page::About, "เกี่ยวกับ"),
-];
+/// Songs and queue share one panel with tabs; the other pages are popups
+/// of their own.
+const TABS: [(Page, &str); 2] = [(Page::Songs, "เพลง"), (Page::Queue, "คิว")];
+
+/// Icon, title and width of a page shown as a popup of its own.
+fn popup(page: Page) -> Option<(&'static str, &'static str, f32)> {
+    match page {
+        Page::Commands => Some((icons::COMMAND, "คำสั่งทั้งหมด", 640.0)),
+        Page::Settings => Some((icons::SETTINGS, "ตั้งค่า", 760.0)),
+        Page::About => Some((icons::INFO, "เกี่ยวกับ", 660.0)),
+        Page::Songs | Page::Queue => None,
+    }
+}
 
 pub struct Overlay {
     pub page: Page,
@@ -129,10 +136,10 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
     if !crate::ui::popup_open(ctx) && key(Modifiers::NONE, Key::Escape) {
         return Outcome::Close;
     }
-    if key(Modifiers::SHIFT, Key::Tab) {
+    if popup(ov.page).is_none() && key(Modifiers::SHIFT, Key::Tab) {
         return Outcome::Goto(cycle(ov.page, -1));
     }
-    if key(Modifiers::NONE, Key::Tab) {
+    if popup(ov.page).is_none() && key(Modifiers::NONE, Key::Tab) {
         return Outcome::Goto(cycle(ov.page, 1));
     }
     if ov.is_list() && !list.is_empty() {
@@ -206,7 +213,7 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
         })
         .inner;
 
-    let width = (screen.width() - 48.0).min(760.0);
+    let width = (screen.width() - 48.0).min(popup(ov.page).map_or(760.0, |p| p.2));
     let max_list = (screen.height() * 0.58).max(160.0);
     let mut result = Outcome::Stay;
     egui::Area::new(egui::Id::new("overlay"))
@@ -221,8 +228,17 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                 .show(ui, |ui| {
                     ui.set_width(width);
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    if let Some(page) = tabs(app, ov, ui) {
-                        result = Outcome::Goto(page);
+                    match popup(ov.page) {
+                        Some((icon, title, _)) => {
+                            if title_bar(ui, icon, title) {
+                                result = Outcome::Close;
+                            }
+                        }
+                        None => {
+                            if let Some(page) = tabs(app, ov, ui) {
+                                result = Outcome::Goto(page);
+                            }
+                        }
                     }
                     divider(ui);
                     match ov.page {
@@ -246,8 +262,10 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
     result
 }
 
+/// The next tab (songs / queue); popups stay where they are.
 fn cycle(page: Page, d: i32) -> Page {
-    let i = TABS.iter().position(|t| t.0 == page).unwrap_or(0) as i32;
+    let Some(i) = TABS.iter().position(|t| t.0 == page) else { return page };
+    let i = i as i32;
     TABS[(i + d).rem_euclid(TABS.len() as i32) as usize].0
 }
 
@@ -284,6 +302,24 @@ fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui) -> Option<Page> {
     }
     keycap(p, pos2(bar.right() - 16.0, bar.center().y), "Esc");
     go
+}
+
+/// Header of a popup page: icon and title, Esc and a close button.
+/// Returns true when the close button was clicked.
+fn title_bar(ui: &mut egui::Ui, icon: &str, title: &str) -> bool {
+    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
+    let p = ui.painter();
+    let y = bar.center().y;
+    p.text(pos2(bar.left() + 20.0, y), Align2::LEFT_CENTER, icon, FontId::proportional(17.0), SUNG);
+    p.text(pos2(bar.left() + 46.0, y), Align2::LEFT_CENTER, title, FontId::proportional(16.0), TEXT);
+    let close = Rect::from_center_size(pos2(bar.right() - 26.0, y), vec2(28.0, 28.0));
+    let resp = ui.interact(close, ui.id().with("popup-close"), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(close, CornerRadius::same(7), RAISED);
+    }
+    ui.painter().text(close.center(), Align2::CENTER_CENTER, icons::REMOVE, FontId::proportional(14.0), if resp.hovered() { TEXT } else { DIM });
+    keycap(ui.painter(), pos2(close.left() - 8.0, y), "Esc");
+    resp.on_hover_text("ปิด (Esc)").clicked()
 }
 
 fn search_field(ov: &mut Overlay, ui: &mut egui::Ui) {
@@ -384,7 +420,7 @@ fn list_ui(
 fn empty_text(app: &KaraokeApp, ov: &Overlay) -> String {
     match ov.page {
         Page::Songs if app.library.scanning() => "กำลังสแกนคลังเพลง…".into(),
-        Page::Songs if app.library.db.songs.is_empty() => "ยังไม่มีเพลง — เพิ่มโฟลเดอร์เพลงได้ที่แท็บ ตั้งค่า".into(),
+        Page::Songs if app.library.db.songs.is_empty() => "ยังไม่มีเพลง — เพิ่มโฟลเดอร์เพลงได้ที่ ตั้งค่า (Ctrl+,)".into(),
         Page::Songs => format!("ไม่พบ \"{}\"", ov.query),
         Page::Queue if app.queue.is_empty() => "คิวว่าง — แท็บ เพลง แล้วกด Enter เพื่อจอง".into(),
         _ => "ไม่พบ".into(),
@@ -495,10 +531,10 @@ pub fn keycap(p: &egui::Painter, right_center: egui::Pos2, key: &str) -> Rect {
 
 fn footer(page: Page, ui: &mut egui::Ui) {
     let hints: &[(&str, &str)] = match page {
-        Page::Songs => &[("↵", "จองคิว"), ("Shift ↵", "ร้องเลย"), ("Ctrl D", "เพลงโปรด"), ("Tab", "หน้าถัดไป")],
+        Page::Songs => &[("↵", "จองคิว"), ("Shift ↵", "ร้องเลย"), ("Ctrl D", "เพลงโปรด"), ("Tab", "คิว")],
         Page::Queue => &[("↵", "ร้องเลย"), ("Shift ↵", "ขึ้นเป็นเพลงถัดไป"), ("Alt ↑↓", "เลื่อน"), ("Del", "เอาออก")],
-        Page::Commands => &[("↵", "ทำคำสั่ง"), ("Tab", "หน้าถัดไป")],
-        Page::Settings | Page::About => &[("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
+        Page::Commands => &[("↵", "ทำคำสั่ง"), ("↑↓", "เลือก"), ("Esc", "ปิด")],
+        Page::Settings | Page::About => &[("Esc", "ปิด")],
     };
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
     let p = ui.painter();
@@ -658,8 +694,13 @@ mod tests {
     #[test]
     fn tab_cycles_through_pages() {
         assert_eq!(cycle(Page::Songs, 1), Page::Queue);
-        assert_eq!(cycle(Page::Settings, 1), Page::About);
-        assert_eq!(cycle(Page::About, 1), Page::Songs);
-        assert_eq!(cycle(Page::Songs, -1), Page::About);
+        assert_eq!(cycle(Page::Queue, 1), Page::Songs);
+        assert_eq!(cycle(Page::Songs, -1), Page::Queue);
+        // Commands, settings and about are popups of their own: no tabs.
+        for page in [Page::Commands, Page::Settings, Page::About] {
+            assert_eq!(cycle(page, 1), page);
+            assert!(popup(page).is_some());
+        }
+        assert!(popup(Page::Songs).is_none() && popup(Page::Queue).is_none());
     }
 }
