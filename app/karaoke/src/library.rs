@@ -1,6 +1,7 @@
-//! The song catalogue as the app uses it: the `solfege_songdb` file in the
-//! app's data folder, rescanned on a background thread, searched as you
-//! type, saved when it changes.
+//! The song catalogue as the app uses it: `songs.dat` (SQLite, see
+//! `solfege_songdb`) in the app's data folder, rescanned on a background
+//! thread, searched as you type, saved when it changes. A `songs.json`
+//! catalogue of older versions is imported on first start.
 
 use std::path::{Path, PathBuf};
 
@@ -26,15 +27,37 @@ pub struct ScanReport {
     pub errors: Vec<String>,
 }
 
+/// The catalogue database in the data folder.
+pub const CATALOGUE: &str = "songs.dat";
+/// The JSON catalogue of older versions.
+const OLD_CATALOGUE: &str = "songs.json";
+
 impl Library {
-    /// Open the catalogue file (a broken one is reported and replaced).
-    pub fn open(path: Option<PathBuf>) -> (Self, Option<String>) {
-        let (db, error) = match path.as_deref().map(SongDb::load) {
-            Some(Ok(db)) => (db, None),
-            Some(Err(e)) => (SongDb::default(), Some(e.to_string())),
+    /// Open the catalogue in `data_dir` (`None` keeps it in memory). A
+    /// broken database is reported, kept aside as `songs.dat.bak` and
+    /// started afresh.
+    pub fn open(data_dir: Option<&Path>) -> (Self, Option<String>) {
+        let path = data_dir.map(|d| d.join(CATALOGUE));
+        let mut dirty = false;
+        let (db, error) = match &path {
             None => (SongDb::default(), None),
+            Some(p) if !p.exists() => match SongDb::import_json(&p.with_file_name(OLD_CATALOGUE)) {
+                Ok(Some(db)) => {
+                    dirty = true;
+                    (db, None)
+                }
+                Ok(None) => (SongDb::default(), None),
+                Err(e) => (SongDb::default(), Some(e.to_string())),
+            },
+            Some(p) => match SongDb::load(p) {
+                Ok(db) => (db, None),
+                Err(e) => {
+                    let _ = std::fs::rename(p, p.with_extension("dat.bak"));
+                    (SongDb::default(), Some(e.to_string()))
+                }
+            },
         };
-        let mut lib = Self { db, path, job: None, dirty: false, query: String::new(), results: Vec::new() };
+        let mut lib = Self { db, path, job: None, dirty, query: String::new(), results: Vec::new() };
         lib.search();
         (lib, error)
     }
@@ -59,6 +82,11 @@ impl Library {
             let _ = tx.send(solfege_songdb::scan(&sources));
         });
         self.job = Some(rx);
+    }
+
+    /// The catalogue database (`None` = in memory only).
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     pub fn scanning(&self) -> bool {

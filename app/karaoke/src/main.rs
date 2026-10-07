@@ -6,6 +6,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod config;
+mod dialog;
 mod gm;
 mod icons;
 mod library;
@@ -35,6 +37,8 @@ USAGE:
     the library is scanned, or a .sfkar file to play directly.
 
 OPTIONS:
+    -c, --config <FILE>     settings file (default: config.json in the
+                            app's data folder)
     -L, --library <DIR>     add a song folder: an NCN library (Song, Lyrics,
                             Cursor) or a folder of .sfkar files
     -s, --soundfont <FILE>  SoundFont (.sf2) or SFZ for the backing tracks;
@@ -44,7 +48,8 @@ OPTIONS:
     -l, --list              list audio output devices, then exit
     -h, --help              show this help
 
-The song catalogue, SoundFont rack and settings persist between runs. On
+The settings (config.json) and the song catalogue (songs.dat, SQLite)
+are kept in the app's data folder and persist between runs. On
 first run `shared/NCN` and the first .sf2 in `shared/` are picked up.
 ";
 
@@ -67,6 +72,7 @@ fn parse_args() -> Result<Option<Launch>> {
                 }
                 return Ok(None);
             }
+            "-c" | "--config" => launch.config = Some(PathBuf::from(value("--config")?)),
             "-L" | "--library" => launch.library = Some(PathBuf::from(value("--library")?)),
             "-s" | "--soundfont" => launch.soundfonts.push(PathBuf::from(value("--soundfont")?)),
             "-d" | "--device" => launch.device = Some(value("--device")?),

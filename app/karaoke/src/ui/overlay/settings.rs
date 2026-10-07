@@ -1,12 +1,10 @@
 //! Song folders, audio device and lyric display (SoundFonts live in the
 //! sound settings window, `ui::sound`).
 
-use std::path::PathBuf;
-
 use eframe::egui::{self, Margin, RichText};
 
-use super::Target;
 use crate::app::KaraokeApp;
+use crate::dialog::Pick;
 use crate::icons;
 use crate::style::{DANGER, DIM, TEXT};
 
@@ -26,9 +24,7 @@ const KEYS: [(&str, &str); 13] = [
     ("Tab", "สลับหน้าในแผงนี้"),
 ];
 
-/// Returns a browse request when a "change…" button was pressed.
-pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) -> Option<(Target, Option<PathBuf>)> {
-    let mut browse = None;
+pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) {
     egui::ScrollArea::vertical().max_height(max_h + 60.0).auto_shrink([false, true]).show(ui, |ui| {
         egui::Frame::new().inner_margin(Margin::symmetric(18, 14)).show(ui, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
@@ -57,8 +53,9 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) -> Option<(Targ
                 ui.label(RichText::new("ยังไม่มีโฟลเดอร์เพลง").color(DANGER));
             }
             ui.horizontal(|ui| {
-                if ui.button(format!("{}  เพิ่มโฟลเดอร์…", icons::FOLDER_PLUS)).clicked() {
-                    browse = Some((Target::Library, app.library.db.sources.last().map(|s| s.path.clone())));
+                let add = egui::Button::new(format!("{}  เพิ่มโฟลเดอร์…", icons::FOLDER_PLUS));
+                if ui.add_enabled(!app.dialogs.busy(), add).on_hover_text("เปิดหน้าต่างเลือกโฟลเดอร์ของระบบ").clicked() {
+                    app.dialogs.ask(Pick::SongFolder, app.library.db.sources.last().map(|s| s.path.clone()));
                 }
                 let can_scan = !app.library.db.sources.is_empty() && !app.library.scanning();
                 if ui.add_enabled(can_scan, egui::Button::new(format!("{}  สแกนใหม่", icons::REFRESH))).clicked() {
@@ -112,6 +109,18 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) -> Option<(Targ
             });
             ui.add_space(14.0);
 
+            section(ui, icons::DATABASE, "ไฟล์ข้อมูล", "แก้ config.json เองได้ขณะปิดโปรแกรม");
+            egui::Grid::new("data-files").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
+                let files = [("การตั้งค่า", app.config_path()), ("ฐานข้อมูลเพลง (SQLite)", app.library.path())];
+                for (what, path) in files {
+                    ui.label(RichText::new(what).color(DIM));
+                    let text = path.map_or("— (ไม่ได้บันทึก)".to_string(), |p| p.display().to_string());
+                    ui.add(egui::Label::new(RichText::new(&text).monospace().size(12.0).color(TEXT)).truncate()).on_hover_text(&text);
+                    ui.end_row();
+                }
+            });
+            ui.add_space(14.0);
+
             section(ui, icons::KEYBOARD, "ปุ่มลัด", "");
             egui::Grid::new("keys").num_columns(4).spacing([14.0, 4.0]).show(ui, |ui| {
                 for (i, (k, what)) in KEYS.iter().enumerate() {
@@ -124,7 +133,6 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) -> Option<(Targ
             });
         });
     });
-    browse
 }
 
 fn section(ui: &mut egui::Ui, icon: &str, title: &str, hint: &str) {

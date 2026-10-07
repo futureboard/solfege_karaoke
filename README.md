@@ -19,6 +19,17 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 > Expect rough edges and missing features; do not rely on it for events,
 > venues or anything you cannot afford to have break.
 
+> [!IMPORTANT]
+> **No support for proprietary or pirated karaoke formats.** This project
+> does not support EMK, XMK, SIB, Sonic Karaoke or similar formats, nor
+> the use of its code to read them or to play unlicensed songs. See
+> [Acceptable use](#acceptable-use).
+>
+> **ไม่สนับสนุนฟอร์แมตคาราโอเกะเชิงพาณิชย์หรือเพลงละเมิดลิขสิทธิ์** โปรเจกต์นี้
+> ไม่รองรับ EMK, XMK, SIB, Sonic Karaoke หรือฟอร์แมตลักษณะเดียวกัน และไม่สนับสนุน
+> การนำโค้ดไปใช้อ่านไฟล์เหล่านั้นหรือเล่นเพลงที่ไม่ได้รับอนุญาต ดู
+> [ข้อตกลงการใช้งาน](#acceptable-use)
+
 ![Lyrics on the stage](docs/screenshots/stage.png)
 
 | | |
@@ -27,8 +38,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | Song search overlay (`/`) | Mixer panel (`M`) |
 | ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Sounds per instrument](docs/screenshots/instruments.png) |
 | Sound settings window (`S`): SoundFont per channel | A sound for any GM instrument |
-| ![Count-in](docs/screenshots/count-in.png) | |
-| Four-beat count-in after a long rest | |
+| ![Count-in](docs/screenshots/count-in.png) | ![Context menu](docs/screenshots/context-menu.png) |
+| Four-beat count-in after a long rest | Right-click menu on the stage |
 
 ## What is in here
 
@@ -39,7 +50,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | [`app/liveinst`](app/liveinst) | `simpletui`, a terminal instrument rack (WAV / SFZ / SF2) with MIDI I/O and a web UI |
 | [`crates/solfege_ncnparser`](crates/solfege_ncnparser) | Parser for NCN libraries (`Song/*.mid`, `Lyrics/*.lyr`, `Cursor/*.cur`) |
 | [`crates/solfege_sfkar`](crates/solfege_sfkar) | The `.sfkar` song file: read, write, convert from NCN |
-| [`crates/solfege_songdb`](crates/solfege_songdb) | Song catalogue over NCN and `.sfkar` folders, with search, favourites and play history |
+| [`crates/solfege_songdb`](crates/solfege_songdb) | Song catalogue (SQLite) over NCN and `.sfkar` folders, with search, favourites and play history |
 | [`crates/solfege_synth`](crates/solfege_synth) | Sample-based synth engine (WAV, SFZ, SF2), MIDI file player and audio output |
 
 ## The karaoke player
@@ -50,11 +61,21 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   before the singing starts and four dots count in, one per beat, after
   a long rest.
 - **Command overlay.** Songs, queue, commands and settings live in one
-  panel over the stage. Type to filter, arrows to move, Enter to
+  panel over the stage.
+- **Context menus.** Right click the stage or the bottom bar for
+  playback, key and tempo, every panel and full screen; right click a
+  song, a queued song, a mixer strip, a SoundFont or a channel for what
+  applies to it. Each entry shows its keyboard shortcut.
+- **Full screen** (`F`, `F11` or double-click the stage) fills the screen
+  and keeps everything: bottom bar, mixer, overlays and windows. Type to filter, arrows to move, Enter to
   act.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
-  one searchable list, with favourites and play counts; songs can be
-  queued.
+  one searchable list, with favourites and play counts, kept in an SQLite
+  database (`songs.dat`); songs can be queued.
+- **Native file dialogs.** SoundFonts and song folders are picked with
+  the system's own dialog: the common item dialog on Windows, NSOpenPanel
+  on macOS and the XDG desktop portal on Linux (the desktop's file chooser
+  on Wayland or X11, `zenity` when no portal runs).
 - **Key and tempo.** Change key by semitones (the drums stay put) and
   tempo from 50 % to 150 %; BPM and key are shown live.
 - **Mixer.** Its own panel, docked under the lyrics: all 16 MIDI channels
@@ -84,6 +105,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `,` `.` | slower / faster | `S` | sound settings window |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
+| right click | context menu | | |
 
 In the overlay: `Enter` reserves a song, `Shift Enter` sings it now,
 `Ctrl D` marks a favourite, `Tab` switches page and `Esc` closes.
@@ -92,10 +114,12 @@ In the overlay: `Enter` reserves a song, `Shift Enter` sings it now,
 
 ### Requirements
 
-- Rust **1.95** or newer (edition 2024).
+- Rust **1.95** or newer (edition 2024), and a C compiler (SQLite is
+  built from source by `rusqlite`).
 - **Linux:** ALSA headers and `pkg-config` to build
   (`sudo apt install libasound2-dev pkg-config` on Debian / Ubuntu), and
-  OpenGL plus `libxkbcommon-x11` to run.
+  OpenGL plus `libxkbcommon-x11` to run. File dialogs need
+  `xdg-desktop-portal` (any desktop has it) or, without one, `zenity`.
 - **Windows:** nothing extra (audio goes through WASAPI).
 - macOS is untested.
 
@@ -127,9 +151,18 @@ cargo run --release -p karaoke -- -s gm.sf2 -s piano.sfz -L /path/to/NCN
 cargo run --release -p karaoke -- --help
 ```
 
-The song catalogue and settings are kept in the app's data folder
+Settings and the song catalogue are kept in the app's data folder
 (`~/.local/share/solfege-karaoke` on Linux,
-`%APPDATA%\solfege-karaoke\data` on Windows).
+`%APPDATA%\solfege-karaoke\data` on Windows; both paths are also shown
+under Settings):
+
+| File | What it holds |
+|---|---|
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size and offset. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
+
+Settings and catalogues of older versions (eframe's `app.ron`,
+`songs.json`) are imported on the first start.
 
 ### Convert NCN to `.sfkar`
 
@@ -168,6 +201,48 @@ cargo clippy --workspace --all-targets
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the details.
+
+<a id="acceptable-use"></a>
+
+## Acceptable use / ข้อตกลงการใช้งาน
+
+**English.** Solfege Karaoke plays songs you have the right to use. We do
+not support, and will not accept contributions for, using this source
+code in any way to:
+
+- read, convert, play or otherwise support proprietary, encrypted or
+  copy-protected karaoke formats, including **EMK, XMK, SIB and Sonic
+  Karaoke** files, or to break or bypass their encryption or protection;
+- play, convert, copy or distribute song libraries obtained without the
+  permission of their rights holders.
+
+Issues and pull requests asking for such support will be closed. Anyone
+who uses or modifies this code for these purposes does so entirely on
+their own responsibility; the authors and contributors accept no
+liability of any kind for it. The software is provided "as is", without
+warranty, as stated in both licences below. This notice is not legal
+advice; check the law where you live.
+
+**ภาษาไทย** Solfege Karaoke มีไว้เล่นเพลงที่ผู้ใช้มีสิทธิ์ใช้งานเท่านั้น
+เราไม่สนับสนุน และจะไม่รับการมีส่วนร่วม (contribution) ใด ๆ ที่นำซอร์สโค้ดนี้ไปใช้
+ไม่ว่าในลักษณะใดก็ตาม เพื่อ
+
+- อ่าน แปลง เล่น หรือรองรับฟอร์แมตคาราโอเกะเชิงพาณิชย์ที่เข้ารหัสหรือมีระบบป้องกัน
+  การคัดลอก รวมถึงไฟล์ **EMK, XMK, SIB และ Sonic Karaoke** หรือเพื่อถอดรหัส
+  หรือหลบเลี่ยงระบบป้องกันของไฟล์เหล่านั้น
+- เล่น แปลง คัดลอก หรือเผยแพร่คลังเพลงที่ได้มาโดยไม่ได้รับอนุญาตจากเจ้าของลิขสิทธิ์
+
+Issue และ pull request ที่ขอให้รองรับสิ่งเหล่านี้จะถูกปิด ผู้ที่นำโค้ดไปใช้หรือดัดแปลง
+เพื่อวัตถุประสงค์ดังกล่าวต้องรับผิดชอบการกระทำของตนเองแต่เพียงผู้เดียว ผู้พัฒนาและ
+ผู้มีส่วนร่วมจะไม่รับผิดชอบใด ๆ ทั้งสิ้น ซอฟต์แวร์นี้ให้ไว้ "ตามสภาพ" (as is) โดยไม่มี
+การรับประกันตามสัญญาอนุญาตทั้งสองฉบับด้านล่าง ข้อความนี้ไม่ใช่คำแนะนำทางกฎหมาย
+โปรดตรวจสอบกฎหมายในประเทศของคุณ
+
+## AI policy
+
+Contributions written with AI assistants are welcome under the rules in
+[AI_POLICY.md](AI_POLICY.md) (English / ไทย): you review, test and answer
+for every line, say which tools you used, and keep the licensing clean.
 
 ## License
 

@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/futureboard/solfege_karaoke"
-description = "Song catalogue over NCN libraries and .sfkar folders, with search, favourites and play history"
+description = "Song catalogue (SQLite) over NCN libraries and .sfkar folders, with search, favourites and play history"
 
 [dependencies]
 solfege_ncnparser = { path = "../solfege_ncnparser" }
 solfege_sfkar = { path = "../solfege_sfkar" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }

@@ -139,8 +139,9 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
     }
     let name_clip = Rect::from_min_max(rect.left_top() + vec2(6.0, 26.0), pos2(rect.right() - 4.0, rect.top() + 42.0));
     p.with_clip_rect(name_clip).text(name_clip.left_center(), Align2::LEFT_CENTER, &c.name, FontId::proportional(10.0), DIM);
-    let name_hover = ui.interact(name_clip, id.with("name"), Sense::hover());
-    name_hover.on_hover_text(&c.name);
+    let header = Rect::from_min_max(rect.min, pos2(rect.right(), rect.top() + 42.0));
+    let name_hover = ui.interact(header, id.with("name"), Sense::click());
+    name_hover.on_hover_text(&c.name).context_menu(|ui| column_menu(app, ui, &c.kind));
 
     let strip = match c.kind {
         Kind::Strip(s) => Some(s),
@@ -298,10 +299,97 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
     resp.on_hover_text(match c.kind {
         Kind::Reverb => "ระดับรีเวิร์บที่กลับเข้ามิกซ์ (มิเตอร์คือเสียงที่ส่งเข้า) · ดับเบิลคลิกเพื่อค่าเริ่มต้น",
         Kind::Chorus => "ระดับคอรัสที่กลับเข้ามิกซ์ (มิเตอร์คือเสียงที่ส่งเข้า) · ดับเบิลคลิกเพื่อค่าเริ่มต้น",
-        _ => "ลากเพื่อปรับ · ดับเบิลคลิกเพื่อค่าเริ่มต้น",
-    });
+        _ => "ลากเพื่อปรับ · ดับเบิลคลิกเพื่อค่าเริ่มต้น · คลิกขวาดูเมนู",
+    })
+    .context_menu(|ui| column_menu(app, ui, &c.kind));
 
     p.text(pos2(rect.center().x, rect.bottom() - 14.0), Align2::CENTER_CENTER, label, FontId::monospace(11.0), if muted { DIM } else { TEXT });
+}
+
+/// Right click on a strip: mute / solo, back to the song's values, and
+/// the sound settings of that channel.
+fn column_menu(app: &mut KaraokeApp, ui: &mut egui::Ui, kind: &Kind) {
+    use crate::ui::menu::{heading, item, item_if, toggle};
+    use crate::ui::sound::{SoundPanel, Tab};
+    match *kind {
+        Kind::Strip(s) => {
+            let p = app.synth.strip(s);
+            let title = match s {
+                StripId::Channel(ch) => format!("แชนแนล {}  ·  {}", ch + 1, app.synth.channel_sound(ch).unwrap_or("ไม่ได้ใช้")),
+                StripId::Kit(g) => format!("ชุดกลอง  ·  {}", kit_name(g)),
+            };
+            heading(ui, &title);
+            if toggle(ui, p.mute, icons::VOLUME, "ปิดเสียง", "") {
+                app.synth.set_strip(s, StripParams { mute: !p.mute, ..p });
+            }
+            if toggle(ui, p.solo, icons::HEADPHONES, "โซโล่", "") {
+                app.synth.set_strip(s, StripParams { solo: !p.solo, ..p });
+            }
+            ui.separator();
+            if item_if(ui, p.gain_db != 0.0, icons::UNDO, "ความดัง 0 dB", "") {
+                app.synth.set_strip(s, StripParams { gain_db: 0.0, ..p });
+            }
+            if item_if(ui, p.pan != 0.0, icons::UNDO, "แพนตามเพลง", "") {
+                app.synth.set_strip(s, StripParams { pan: 0.0, ..p });
+            }
+            if item_if(ui, p.reverb_add != 0.0 || p.chorus_add != 0.0, icons::UNDO, "รีเวิร์บ / คอรัสตามเพลง", "") {
+                app.synth.set_strip(s, StripParams { reverb_add: 0.0, chorus_add: 0.0, ..p });
+            }
+            if item_if(ui, p != StripParams::default(), icons::RESTART, "รีเซ็ตช่องนี้ทั้งหมด", "") {
+                app.synth.set_strip(s, StripParams::default());
+            }
+            ui.separator();
+            let drums = matches!(s, StripId::Kit(_) | StripId::Channel(DRUM_CH));
+            let (icon, label, tab) =
+                if drums { (icons::DRUM, "ชุดกลองและ SoundFont กลอง…", Tab::Drums) } else { (icons::FILE_MUSIC, "เสียงและ SoundFont ของแชนแนล…", Tab::Channels) };
+            if item(ui, icon, label, "") {
+                app.open_sound();
+                app.sound = Some(SoundPanel::at(tab));
+            }
+        }
+        Kind::Reverb | Kind::Chorus => {
+            let reverb = matches!(kind, Kind::Reverb);
+            heading(ui, if reverb { "รีเวิร์บ" } else { "คอรัส" });
+            let fx = app.synth.mixer().fx;
+            let d = FxParams::default();
+            let changed = if reverb {
+                (fx.reverb_return, fx.reverb_room, fx.reverb_damp, fx.reverb_width) != (d.reverb_return, d.reverb_room, d.reverb_damp, d.reverb_width)
+            } else {
+                (fx.chorus_return, fx.chorus_rate, fx.chorus_depth, fx.chorus_delay) != (d.chorus_return, d.chorus_rate, d.chorus_depth, d.chorus_delay)
+            };
+            let off = if reverb { fx.reverb_return == 0.0 } else { fx.chorus_return == 0.0 };
+            if toggle(ui, off, icons::VOLUME, "ปิดเอฟเฟกต์นี้", "") {
+                let level = if off { 0.5 } else { 0.0 };
+                app.synth.set_fx(if reverb { FxParams { reverb_return: level, ..fx } } else { FxParams { chorus_return: level, ..fx } });
+            }
+            if item_if(ui, changed, icons::RESTART, "ค่าเริ่มต้น", "") {
+                app.synth.set_fx(if reverb {
+                    FxParams { reverb_return: d.reverb_return, reverb_room: d.reverb_room, reverb_damp: d.reverb_damp, reverb_width: d.reverb_width, ..fx }
+                } else {
+                    FxParams { chorus_return: d.chorus_return, chorus_rate: d.chorus_rate, chorus_depth: d.chorus_depth, chorus_delay: d.chorus_delay, ..fx }
+                });
+            }
+        }
+        Kind::Master => {
+            heading(ui, "รวม");
+            if item(ui, icons::UNDO, "ระดับเสียง 80%", "") {
+                app.synth.set_volume(0.8);
+            }
+        }
+    }
+    ui.separator();
+    if item_if(ui, app.synth.mixer_touched(), icons::VOLUME, "เปิดเสียงทุกช่อง", "") {
+        for id in strip_ids() {
+            let p = app.synth.strip(id);
+            app.synth.set_strip(id, StripParams { mute: false, solo: false, ..p });
+        }
+    }
+    if item(ui, icons::RESTART, "รีเซ็ตแชนแนลของเพลงนี้", "") {
+        app.synth.reset_channels();
+    }
+    if item(ui, icons::REMOVE, "ปิดมิกเซอร์", "M") {
+        app.mixer_open = false;
+    }
 }
 
 /// Label, tooltip, value, default, min, max and how to show the value.

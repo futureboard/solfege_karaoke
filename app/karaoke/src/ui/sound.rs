@@ -2,8 +2,6 @@
 //! font every channel plays, a sound per GM instrument and the drum kit.
 //! A sidebar picks the section; each SoundFont keeps one colour throughout.
 
-use std::path::PathBuf;
-
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Key, Margin, Modifiers, Rect, RichText, Sense, Shadow, Stroke, pos2, vec2};
 
 use crate::app::KaraokeApp;
@@ -11,11 +9,11 @@ use crate::gm;
 use crate::icons;
 use crate::style::{self, DANGER, DIM, INK, LINE, PANEL, RAISED, SUNG, TEXT, font_color};
 use crate::synth::{DRUM_CH, InstrumentSound, MAX_FONTS};
-use crate::ui::browse::{Browse, Entry, Target};
+use crate::dialog::Pick;
 use crate::ui::overlay::keycap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum Tab {
+pub enum Tab {
     Fonts,
     Channels,
     Instruments,
@@ -24,20 +22,18 @@ enum Tab {
 
 pub struct SoundPanel {
     tab: Tab,
-    /// Picking a file to add to the rack.
-    browse: Option<Browse>,
     family: usize,
     filter: String,
 }
 
 impl SoundPanel {
     pub fn new() -> Self {
-        Self { tab: Tab::Fonts, browse: None, family: 0, filter: String::new() }
+        Self { tab: Tab::Fonts, family: 0, filter: String::new() }
     }
 
-    /// Open straight on the file picker for a new SoundFont.
-    pub fn adding(start: Option<PathBuf>) -> Self {
-        Self { browse: Some(Browse::new(Target::SoundFont, start)), ..Self::new() }
+    /// Open on a given page.
+    pub fn at(tab: Tab) -> Self {
+        Self { tab, ..Self::new() }
     }
 }
 
@@ -45,11 +41,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
     let Some(mut panel) = app.sound.take() else { return };
     let mut open = true;
     if !ctx.any_popup_open() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
-        if panel.browse.is_some() {
-            panel.browse = None;
-        } else {
-            open = false;
-        }
+        open = false;
     }
 
     let screen = ctx.content_rect();
@@ -101,7 +93,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
                                     w.inactive.bg_fill = INK;
                                     w.hovered.weak_bg_fill = style::mix(INK, LINE, 0.8);
                                     match panel.tab {
-                                        Tab::Fonts => fonts_tab(app, &mut panel, ui),
+                                        Tab::Fonts => fonts_tab(app, ui),
                                         Tab::Channels => channels_tab(app, &mut panel, ui),
                                         Tab::Instruments => instruments_tab(app, &mut panel, ui),
                                         Tab::Drums => drums_tab(app, ui),
@@ -175,7 +167,6 @@ fn sidebar(app: &KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui) {
         }
         if resp.clicked() {
             panel.tab = tab;
-            panel.browse = None;
         }
     }
 }
@@ -231,10 +222,7 @@ fn font_chips(ui: &mut egui::Ui, app: &KaraokeApp, current: Option<usize>, none:
 
 // ------------------------------------------------------------------ fonts
 
-fn fonts_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui) {
-    if panel.browse.is_some() {
-        return browse_view(app, panel, ui);
-    }
+fn fonts_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     title(ui, "SoundFont", "ไฟล์ .sf2 หรือ SFZ ที่ใช้เล่นดนตรี ไฟล์แรกเล่นทุกแชนแนลจนกว่าจะเลือกให้แชนแนลหรือเครื่องดนตรีใช้ไฟล์อื่น");
     if app.synth.fonts().is_empty() {
         Frame::new().fill(INK).corner_radius(CornerRadius::same(12)).inner_margin(Margin::same(16)).show(ui, |ui| {
@@ -246,8 +234,9 @@ fn fonts_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui) {
     let instruments: Vec<usize> = app.synth.instruments().values().map(|s| s.font).collect();
     let mut remove = None;
     let mut all = None;
+    let mut copy = None;
     for (i, f) in app.synth.fonts().iter().enumerate() {
-        Frame::new()
+        let card = Frame::new()
             .fill(RAISED)
             .corner_radius(CornerRadius::same(12))
             .inner_margin(Margin::symmetric(14, 12))
@@ -289,6 +278,23 @@ fn fonts_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui) {
                     });
                 });
             });
+        card.response.interact(Sense::click()).context_menu(|ui| {
+            use crate::ui::menu::{heading, item, item_if};
+            heading(ui, &format!("SoundFont {}  ·  {}", i + 1, f.name()));
+            if item_if(ui, f.inst.is_some() && routing.iter().any(|&r| r != i), icons::MIXER, "ใช้กับทุกแชนแนล", "") {
+                all = Some(i);
+            }
+            if item(ui, icons::COPY, "คัดลอกที่อยู่ไฟล์", "") {
+                copy = Some(f.path.display().to_string());
+            }
+            ui.separator();
+            if item(ui, icons::REMOVE, "เอาออกจาก rack", "") {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(text) = copy {
+        ui.ctx().copy_text(text);
     }
     if let Some(i) = all {
         app.synth.route_all(i);
@@ -298,56 +304,19 @@ fn fonts_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui) {
     }
     ui.add_space(4.0);
     let full = app.synth.fonts().len() >= MAX_FONTS;
+    let picking = app.dialogs.busy();
+    let label = if picking { format!("{}   กำลังเลือกไฟล์ในหน้าต่างของระบบ…", icons::FOLDER_OPEN) } else { format!("{}   เพิ่ม SoundFont / SFZ…", icons::FOLDER_PLUS) };
     let add = ui.add_enabled(
-        !full,
-        egui::Button::new(RichText::new(format!("{}   เพิ่ม SoundFont / SFZ…", icons::FOLDER_PLUS)).size(14.0))
+        !full && !picking,
+        egui::Button::new(RichText::new(label).size(14.0))
             .min_size(vec2(ui.available_width(), 44.0))
             .corner_radius(CornerRadius::same(12)),
     );
-    if add.clicked() {
-        panel.browse = Some(Browse::new(Target::SoundFont, app.synth.fonts().last().map(|f| f.path.clone())));
+    if add.on_hover_text("เปิดหน้าต่างเลือกไฟล์ของระบบ เลือกได้หลายไฟล์").clicked() {
+        app.dialogs.ask(Pick::SoundFonts, app.synth.fonts().last().map(|f| f.path.clone()));
     }
     if full {
         ui.label(RichText::new(format!("ใส่ได้สูงสุด {MAX_FONTS} ไฟล์")).size(12.0).color(DIM));
-    }
-}
-
-fn browse_view(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui) {
-    let mut back = false;
-    let mut chosen = None;
-    if let Some(b) = &mut panel.browse {
-        ui.horizontal(|ui| {
-            back = ui.button(format!("{}  กลับ", icons::FOLDER_UP)).on_hover_text("Esc").clicked();
-            ui.label(RichText::new("เลือกไฟล์ SoundFont / SFZ").size(16.0).strong().color(TEXT));
-        });
-        ui.add(egui::Label::new(RichText::new(b.dir_text()).monospace().size(12.0).color(DIM)).truncate());
-        ui.add_space(4.0);
-        for e in b.entries("") {
-            let (icon, name, note, color) = b.describe(e);
-            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::click());
-            let p = ui.painter();
-            if resp.hovered() {
-                p.rect_filled(rect, CornerRadius::same(8), RAISED);
-            }
-            let tint = if matches!(e, Entry::File(_)) { SUNG } else { DIM };
-            p.text(pos2(rect.left() + 14.0, rect.center().y), Align2::CENTER_CENTER, icon, FontId::proportional(15.0), tint);
-            p.text(pos2(rect.left() + 34.0, rect.center().y), Align2::LEFT_CENTER, name, FontId::proportional(14.0), color);
-            if !note.is_empty() {
-                p.text(pos2(rect.right() - 12.0, rect.center().y), Align2::RIGHT_CENTER, note, FontId::proportional(12.0), DIM);
-            }
-            if resp.clicked() {
-                // Folders open in place; a file is the choice.
-                chosen = b.activate(e);
-                break;
-            }
-        }
-    }
-    if let Some(path) = chosen {
-        app.add_soundfont(path);
-        back = true;
-    }
-    if back {
-        panel.browse = None;
     }
 }
 
@@ -374,7 +343,7 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
     for ch in 0..16 {
         let active = used == 0 || used & (1 << ch) != 0;
         let font = app.synth.routing()[ch];
-        Frame::new()
+        let row = Frame::new()
             .fill(if active { RAISED } else { style::mix(INK, RAISED, 0.4) })
             .corner_radius(CornerRadius::same(10))
             .inner_margin(Margin::symmetric(12, 8))
@@ -427,6 +396,31 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
                     });
                 });
             });
+        row.response.interact(Sense::click()).context_menu(|ui| channel_menu(app, panel, ui, ch));
+    }
+}
+
+/// Right click on a channel row: its SoundFont, its pinned sound.
+fn channel_menu(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui, ch: usize) {
+    use crate::ui::menu::{heading, item, item_if, toggle};
+    heading(ui, &if ch == DRUM_CH { "แชนแนล 10 · กลอง".to_string() } else { format!("แชนแนล {}", ch + 1) });
+    let routed = app.synth.routing()[ch];
+    let names: Vec<String> = app.synth.fonts().iter().map(|f| f.name().to_string()).collect();
+    for (i, name) in names.iter().enumerate() {
+        if toggle(ui, routed == i, icons::FILE_MUSIC, &format!("SoundFont {}  ·  {name}", i + 1), "") {
+            app.synth.set_route(ch, i);
+        }
+    }
+    ui.separator();
+    if ch == DRUM_CH {
+        if item(ui, icons::DRUM, "ชุดกลอง…", "") {
+            panel.tab = Tab::Drums;
+        }
+    } else if item_if(ui, app.synth.pin(ch).is_some(), icons::UNDO, "เลิกปักเสียง (ตามเพลง)", "") {
+        app.synth.set_pin(ch, None);
+    }
+    if item_if(ui, names.len() > 1, icons::MIXER, &format!("ใช้ SoundFont {} กับทุกแชนแนล", routed + 1), "") {
+        app.synth.route_all(routed);
     }
 }
 
