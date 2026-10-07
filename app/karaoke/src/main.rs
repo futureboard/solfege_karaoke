@@ -90,6 +90,8 @@ fn main() -> Result<()> {
             .with_title("Solfege Karaoke")
             .with_inner_size([1280.0, 780.0])
             .with_min_inner_size([900.0, 560.0]),
+        // wgpu picks Vulkan, Metal or Direct3D 12, with OpenGL as fallback.
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
     eframe::run_native(APP_ID, options, Box::new(|cc| Ok(Box::new(KaraokeApp::new(cc, launch)))))

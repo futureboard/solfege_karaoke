@@ -40,6 +40,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | Sound settings window (`S`): SoundFont per channel | A sound for any GM instrument |
 | ![Count-in](docs/screenshots/count-in.png) | ![Context menu](docs/screenshots/context-menu.png) |
 | Four-beat count-in after a long rest | Right-click menu on the stage |
+| ![Classic lyrics](docs/screenshots/classic.png) | ![About](docs/screenshots/about.png) |
+| Classic layout: two lines that take turns (`L`) | About page |
 
 ## What is in here
 
@@ -55,11 +57,14 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 
 ## The karaoke player
 
-- **Lyric stage.** The line being sung sits in the middle and fills with
-  colour per syllable (Thai vowels and tone marks are shaped properly);
-  finished lines drift up, the next ones wait below. A title card shows
-  before the singing starts and four dots count in, one per beat, after
-  a long rest.
+- **Lyric stage.** Lines fill with colour per syllable (Thai vowels and
+  tone marks are shaped properly), in one of two layouts (`L`):
+  *scroll*, where the line being sung sits in the middle and finished
+  lines drift up, or *classic*, two fixed lines in the middle that take
+  turns. A title card shows before the singing starts, four dots count
+  in after a long rest, and the time of day sits in the corner.
+- **Guide melody off** (`V`). Mutes MIDI channel 9, where NCN songs
+  carry the vocal melody, in every song until turned back on.
 - **Command overlay.** Songs, queue, commands and settings live in one
   panel over the stage.
 - **Context menus.** Right click the stage or the bottom bar for
@@ -103,6 +108,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `←` `→` | back / forward 5 s | `Q` | queue |
 | `[` `]` | key down / up | `M` | mixer panel |
 | `,` `.` | slower / faster | `S` | sound settings window |
+| `V` | guide melody (channel 9) on / off | `L` | lyric layout |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
 | right click | context menu | | |
@@ -122,6 +128,9 @@ In the overlay: `Enter` reserves a song, `Shift Enter` sings it now,
   `xdg-desktop-portal` (any desktop has it) or, without one, `zenity`.
 - **Windows:** nothing extra (audio goes through WASAPI).
 - macOS is untested.
+- Graphics go through **wgpu** (Vulkan, Metal or Direct3D 12, with
+  OpenGL as a fallback), so any GPU from the last decade, or a software
+  renderer such as llvmpipe, works.
 
 ### Songs and sounds
 

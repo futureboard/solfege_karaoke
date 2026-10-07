@@ -65,6 +65,8 @@ pub struct KaraokeApp {
     /// The sound settings window (SoundFonts, channels, instruments, drums).
     pub sound: Option<SoundPanel>,
     pub devices: Vec<String>,
+    /// Graphics backend and adapter, for the About page.
+    pub renderer: String,
     /// Seek bar position while it is being dragged.
     pub scrub: Option<f64>,
     pending_song: Option<String>,
@@ -100,6 +102,13 @@ impl KaraokeApp {
             mixer_open: false,
             sound: None,
             devices: Vec::new(),
+            renderer: cc.wgpu_render_state.as_ref().map_or_else(
+                || "—".to_string(),
+                |rs| {
+                    let info = rs.adapter.get_info();
+                    format!("wgpu · {} · {}", info.backend, info.name)
+                },
+            ),
             scrub: None,
             pending_song: launch.song,
             clock: 0.0,
@@ -129,6 +138,7 @@ impl KaraokeApp {
         app.synth.set_routing(app.settings.routing);
         app.synth.set_drum_lock(app.settings.drum_lock);
         app.synth.set_fx(app.settings.fx);
+        app.synth.set_melody_off(app.settings.melody_off);
         for saved in app.settings.instruments.clone() {
             if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
                 let sound = InstrumentSound { font, bank: saved.bank, program: saved.program };
@@ -356,6 +366,12 @@ impl KaraokeApp {
         if pressed(Key::S) {
             return self.open_sound();
         }
+        if pressed(Key::V) {
+            self.toggle_melody();
+        }
+        if pressed(Key::L) {
+            self.toggle_lyric_mode();
+        }
         if pressed(Key::Space) {
             self.synth.toggle();
         }
@@ -393,6 +409,20 @@ impl KaraokeApp {
     /// The settings file (`None` when there is no data folder).
     pub fn config_path(&self) -> Option<&std::path::Path> {
         self.config.path.as_deref()
+    }
+
+    /// Mute or bring back the guide melody (channel 9), as a saved setting.
+    pub fn toggle_melody(&mut self) {
+        let off = !self.synth.melody_off();
+        self.synth.set_melody_off(off);
+        self.settings.melody_off = off;
+        self.toast(if off { "ปิดเมโลดี้ร้องนำ (ช่อง 9)".into() } else { "เปิดเมโลดี้ร้องนำ (ช่อง 9)".into() });
+    }
+
+    /// Switch between the two lyric layouts.
+    pub fn toggle_lyric_mode(&mut self) {
+        self.settings.lyric_mode = self.settings.lyric_mode.other();
+        self.toast(format!("เนื้อร้อง: {}", self.settings.lyric_mode.label()));
     }
 
     pub fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {

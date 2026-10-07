@@ -4,11 +4,12 @@
 use eframe::egui::{self, Margin, RichText};
 
 use crate::app::KaraokeApp;
+use crate::config::LyricMode;
 use crate::dialog::Pick;
 use crate::icons;
 use crate::style::{DANGER, DIM, TEXT};
 
-const KEYS: [(&str, &str); 13] = [
+const KEYS: [(&str, &str); 16] = [
     ("Space", "เล่น / พัก"),
     ("Left  Right", "ถอย / ข้าม 5 วินาที"),
     ("[  ]", "ลด / เพิ่มคีย์"),
@@ -19,6 +20,9 @@ const KEYS: [(&str, &str); 13] = [
     ("Q", "คิวเพลง"),
     ("M", "มิกเซอร์"),
     ("S", "เสียง / SoundFont"),
+    ("V", "เปิด / ปิดเมโลดี้ร้องนำ"),
+    ("L", "รูปแบบเนื้อร้อง"),
+    ("คลิกขวา", "เมนู"),
     ("Ctrl K", "คำสั่งทั้งหมด"),
     ("Ctrl ,", "ตั้งค่า"),
     ("Tab", "สลับหน้าในแผงนี้"),
@@ -99,12 +103,32 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) {
 
             section(ui, icons::TYPE, "เนื้อร้อง", "");
             egui::Grid::new("lyric-settings").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
+                ui.label("รูปแบบ");
+                ui.horizontal(|ui| {
+                    for (mode, icon) in [(LyricMode::Scroll, icons::LYRICS_SCROLL), (LyricMode::Classic, icons::LYRICS_CLASSIC)] {
+                        let on = app.settings.lyric_mode == mode;
+                        if ui.selectable_label(on, format!("{icon}  {}", mode.label())).clicked() {
+                            app.settings.lyric_mode = mode;
+                        }
+                    }
+                    ui.label(RichText::new("L").monospace().color(DIM));
+                });
+                ui.end_row();
                 ui.label("ขนาดตัวอักษร");
                 ui.add(egui::Slider::new(&mut app.settings.lyric_scale, 0.6..=1.6).fixed_decimals(2));
                 ui.end_row();
                 ui.label("เลื่อนเวลาเนื้อร้อง");
                 ui.add(egui::Slider::new(&mut app.settings.lyric_offset_ms, -800..=800).suffix(" ms"))
                     .on_hover_text("ค่าบวก = เนื้อร้องช้าลง ใช้ชดเชยความหน่วงของลำโพง");
+                ui.end_row();
+                ui.label("เมโลดี้ร้องนำ");
+                let mut on = !app.synth.melody_off();
+                if ui.checkbox(&mut on, "เล่นเมโลดี้นำร้อง (MIDI ช่อง 9)  ·  V").changed() {
+                    app.toggle_melody();
+                }
+                ui.end_row();
+                ui.label("นาฬิกา");
+                ui.checkbox(&mut app.settings.show_clock, "แสดงเวลาตอนนี้ที่มุมขวาบน");
                 ui.end_row();
             });
             ui.add_space(14.0);

@@ -1,9 +1,10 @@
 //! The command overlay: one panel over the stage for everything that is not
-//! singing. Pages: songs, queue, commands and settings (files and folders
+//! singing. Pages: songs, queue, commands, settings and about (files and folders
 //! are picked with the system's own dialogs). List pages share one keyboard model:
 //! type to filter, Up / Down to move, Enter to act, Shift+Enter for the
 //! second action, Tab to switch page, Esc to close.
 
+mod about;
 mod commands;
 mod settings;
 
@@ -21,13 +22,15 @@ pub enum Page {
     Queue,
     Commands,
     Settings,
+    About,
 }
 
-const TABS: [(Page, &str); 4] = [
+const TABS: [(Page, &str); 5] = [
     (Page::Songs, "เพลง"),
     (Page::Queue, "คิว"),
     (Page::Commands, "คำสั่ง"),
     (Page::Settings, "ตั้งค่า"),
+    (Page::About, "เกี่ยวกับ"),
 ];
 
 pub struct Overlay {
@@ -68,7 +71,7 @@ impl Overlay {
     }
 
     fn is_list(&self) -> bool {
-        !matches!(self.page, Page::Settings)
+        !matches!(self.page, Page::Settings | Page::About)
     }
 }
 
@@ -84,7 +87,7 @@ fn items(app: &KaraokeApp, ov: &Overlay) -> Vec<Item> {
             .map(|(i, _)| Item::Queued(i))
             .collect(),
         Page::Commands => commands::ALL.iter().filter(|c| c.matches(app, &q)).map(|&c| Item::Cmd(c)).collect(),
-        Page::Settings => Vec::new(),
+        Page::Settings | Page::About => Vec::new(),
     }
 }
 
@@ -224,6 +227,7 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                     divider(ui);
                     match ov.page {
                         Page::Settings => settings::show(app, ui, max_list),
+                        Page::About => about::show(app, ui, max_list),
                         _ => {
                             search_field(ov, ui);
                             divider(ui);
@@ -494,7 +498,7 @@ fn footer(page: Page, ui: &mut egui::Ui) {
         Page::Songs => &[("↵", "จองคิว"), ("Shift ↵", "ร้องเลย"), ("Ctrl D", "เพลงโปรด"), ("Tab", "หน้าถัดไป")],
         Page::Queue => &[("↵", "ร้องเลย"), ("Shift ↵", "ขึ้นเป็นเพลงถัดไป"), ("Alt ↑↓", "เลื่อน"), ("Del", "เอาออก")],
         Page::Commands => &[("↵", "ทำคำสั่ง"), ("Tab", "หน้าถัดไป")],
-        Page::Settings => &[("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
+        Page::Settings | Page::About => &[("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
     };
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
     let p = ui.painter();
@@ -654,7 +658,8 @@ mod tests {
     #[test]
     fn tab_cycles_through_pages() {
         assert_eq!(cycle(Page::Songs, 1), Page::Queue);
-        assert_eq!(cycle(Page::Settings, 1), Page::Songs);
-        assert_eq!(cycle(Page::Songs, -1), Page::Settings);
+        assert_eq!(cycle(Page::Settings, 1), Page::About);
+        assert_eq!(cycle(Page::About, 1), Page::Songs);
+        assert_eq!(cycle(Page::Songs, -1), Page::About);
     }
 }
