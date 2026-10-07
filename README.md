@@ -19,6 +19,17 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 > Expect rough edges and missing features; do not rely on it for events,
 > venues or anything you cannot afford to have break.
 
+> [!IMPORTANT]
+> **No support for proprietary or pirated karaoke formats.** This project
+> does not support EMK, XMK, SIB, Sonic Karaoke or similar formats, nor
+> the use of its code to read them or to play unlicensed songs. See
+> [Acceptable use](#acceptable-use).
+>
+> **ไม่สนับสนุนฟอร์แมตคาราโอเกะเชิงพาณิชย์หรือเพลงละเมิดลิขสิทธิ์** โปรเจกต์นี้
+> ไม่รองรับ EMK, XMK, SIB, Sonic Karaoke หรือฟอร์แมตลักษณะเดียวกัน และไม่สนับสนุน
+> การนำโค้ดไปใช้อ่านไฟล์เหล่านั้นหรือเล่นเพลงที่ไม่ได้รับอนุญาต ดู
+> [ข้อตกลงการใช้งาน](#acceptable-use)
+
 ![Lyrics on the stage](docs/screenshots/stage.png)
 
 | | |
@@ -190,6 +201,48 @@ cargo clippy --workspace --all-targets
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the details.
+
+<a id="acceptable-use"></a>
+
+## Acceptable use / ข้อตกลงการใช้งาน
+
+**English.** Solfege Karaoke plays songs you have the right to use. We do
+not support, and will not accept contributions for, using this source
+code in any way to:
+
+- read, convert, play or otherwise support proprietary, encrypted or
+  copy-protected karaoke formats, including **EMK, XMK, SIB and Sonic
+  Karaoke** files, or to break or bypass their encryption or protection;
+- play, convert, copy or distribute song libraries obtained without the
+  permission of their rights holders.
+
+Issues and pull requests asking for such support will be closed. Anyone
+who uses or modifies this code for these purposes does so entirely on
+their own responsibility; the authors and contributors accept no
+liability of any kind for it. The software is provided "as is", without
+warranty, as stated in both licences below. This notice is not legal
+advice; check the law where you live.
+
+**ภาษาไทย** Solfege Karaoke มีไว้เล่นเพลงที่ผู้ใช้มีสิทธิ์ใช้งานเท่านั้น
+เราไม่สนับสนุน และจะไม่รับการมีส่วนร่วม (contribution) ใด ๆ ที่นำซอร์สโค้ดนี้ไปใช้
+ไม่ว่าในลักษณะใดก็ตาม เพื่อ
+
+- อ่าน แปลง เล่น หรือรองรับฟอร์แมตคาราโอเกะเชิงพาณิชย์ที่เข้ารหัสหรือมีระบบป้องกัน
+  การคัดลอก รวมถึงไฟล์ **EMK, XMK, SIB และ Sonic Karaoke** หรือเพื่อถอดรหัส
+  หรือหลบเลี่ยงระบบป้องกันของไฟล์เหล่านั้น
+- เล่น แปลง คัดลอก หรือเผยแพร่คลังเพลงที่ได้มาโดยไม่ได้รับอนุญาตจากเจ้าของลิขสิทธิ์
+
+Issue และ pull request ที่ขอให้รองรับสิ่งเหล่านี้จะถูกปิด ผู้ที่นำโค้ดไปใช้หรือดัดแปลง
+เพื่อวัตถุประสงค์ดังกล่าวต้องรับผิดชอบการกระทำของตนเองแต่เพียงผู้เดียว ผู้พัฒนาและ
+ผู้มีส่วนร่วมจะไม่รับผิดชอบใด ๆ ทั้งสิ้น ซอฟต์แวร์นี้ให้ไว้ "ตามสภาพ" (as is) โดยไม่มี
+การรับประกันตามสัญญาอนุญาตทั้งสองฉบับด้านล่าง ข้อความนี้ไม่ใช่คำแนะนำทางกฎหมาย
+โปรดตรวจสอบกฎหมายในประเทศของคุณ
+
+## AI policy
+
+Contributions written with AI assistants are welcome under the rules in
+[AI_POLICY.md](AI_POLICY.md) (English / ไทย): you review, test and answer
+for every line, say which tools you used, and keep the licensing clean.
 
 ## License
 

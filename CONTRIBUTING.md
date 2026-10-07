@@ -90,6 +90,20 @@ Do not commit song files, NCN packs or SoundFonts. They have their own
 licences and are kept out of the repository on purpose (`shared/` is
 ignored).
 
+## Out of scope
+
+Support for proprietary, encrypted or copy-protected karaoke formats
+(EMK, XMK, SIB, Sonic Karaoke and the like), code that breaks or bypasses
+their protection, and anything aimed at unlicensed song libraries will
+not be accepted. See
+[Acceptable use](README.md#acceptable-use).
+
+## AI-assisted contributions
+
+Using AI tools is fine; follow [AI_POLICY.md](AI_POLICY.md). In short:
+review and test everything yourself, say in the pull request which tools
+you used, and do not submit what you could not explain in review.
+
 ## Licence
 
 By contributing you agree that your contributions are dual licensed under
