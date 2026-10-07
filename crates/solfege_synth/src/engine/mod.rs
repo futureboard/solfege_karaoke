@@ -17,9 +17,7 @@ use crate::smf::Song;
 use dsp::{Chorus, Reverb};
 use mixer::{BLOCK, DRUM_CHANNEL, DRUM_STRIP_BASE, FxParams, MAX_BUSES, MAX_STRIPS, NoteGroups, StripParams};
 use slot::find_drum_preset;
-pub use slot::Slot;
-#[cfg(test)]
-pub use slot::resolve_preset;
+pub use slot::{Slot, resolve_preset};
 
 pub const MAX_SLOTS: usize = 16;
 pub const OMNI: u16 = 0xFFFF;
@@ -865,7 +863,6 @@ impl Engine {
 
     /// Render into a stereo pair (the main bus; other buses fold into it
     /// when only one pair is configured). Any length.
-    #[cfg(test)]
     pub fn process(&mut self, out_l: &mut [f32], out_r: &mut [f32]) {
         let mut done = 0;
         while done < out_l.len() {

@@ -411,7 +411,7 @@ pub(super) fn find_drum_preset(inst: &Instrument) -> Option<usize> {
 }
 
 impl Slot {
-    #[cfg(test)]
+    /// Slot with default mixer strips and GM note groups.
     pub fn new(inst: Arc<Instrument>, preset: usize, params: SlotParams) -> Self {
         Self::with_mixer(inst, preset, params, &[StripParams::default(); MAX_STRIPS], NoteGroups::gm())
     }

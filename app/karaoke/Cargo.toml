@@ -1,0 +1,17 @@
+[package]
+name = "karaoke"
+version = "0.1.0"
+edition = "2024"
+description = "NCN karaoke player with an egui front end"
+
+[[bin]]
+name = "solfege-karaoke"
+path = "src/main.rs"
+
+[dependencies]
+solfege_ncnparser = { path = "../../crates/solfege_ncnparser" }
+solfege_synth = { path = "../../crates/solfege_synth" }
+anyhow = "1"
+crossbeam-channel = "0.5"
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "persistence"] }
+serde = { version = "1", features = ["derive"] }

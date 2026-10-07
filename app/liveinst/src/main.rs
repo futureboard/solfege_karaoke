@@ -1,11 +1,7 @@
 mod app;
-mod audio;
 mod browser;
-mod engine;
-mod instrument;
 mod midi;
 mod web;
-mod smf;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -15,6 +11,10 @@ mod tests_channels;
 #[cfg(test)]
 mod tests_mixer;
 mod ui;
+
+// The sound engine lives in `solfege_synth`; importing its modules here
+// keeps the `crate::engine::...` paths used across this app working.
+use solfege_synth::{audio, engine, instrument, smf};
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -54,7 +54,7 @@ OPTIONS:
         --no-midi           do not auto-connect MIDI inputs
     -p, --play              start playing the MIDI file given in FILES
     -w, --web <ADDR>        web UI address (default 127.0.0.1:7878; port alone is fine)
-        --web-dir <DIR>     web UI build directory (default: webui/dist)
+        --web-dir <DIR>     web UI build directory (default: app/liveinst/webui/dist)
         --no-web            do not start the web UI
         --headless          no terminal UI: audio, MIDI and web UI only (Ctrl+C quits)
     -l, --list              list audio devices and MIDI ports, then exit
