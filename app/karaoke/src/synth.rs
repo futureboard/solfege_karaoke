@@ -9,6 +9,7 @@
 //! output device it runs on a paced thread instead, so lyrics still follow
 //! the song (silently) and the rest of the app behaves the same.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +19,7 @@ use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use solfege_synth::audio::{self, AudioOut};
 use solfege_synth::engine::mixer::{DRUM_STRIP_BASE, FxParams, GM_GROUP_NAMES, StripParams};
-use solfege_synth::engine::{Command, Engine, Garbage, PlayState, Shared, Slot, SlotParams, load_peak};
+use solfege_synth::engine::{Command, Engine, Garbage, NO_PRESET, PlayState, Shared, Slot, SlotParams, load_peak};
 use solfege_synth::instrument::{self, Instrument, db_to_gain};
 use solfege_synth::smf;
 
@@ -78,12 +79,31 @@ impl Font {
     }
 }
 
-/// One engine slot: which font, and whether it is the drum slot.
+/// A sound chosen for one GM instrument (program), from any font.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InstrumentSound {
+    pub font: usize,
+    pub bank: u16,
+    pub program: u8,
+}
+
+/// One engine slot: which font, which channels, and what it is for.
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct RackSlot {
     font: usize,
     channels: u16,
     drums: bool,
+    /// Channels split by program (see `SlotParams::filtered`).
+    filtered: u16,
+    programs: u128,
+    /// Program -> preset of this font, for instrument overrides.
+    map: Option<Box<[u16; 128]>>,
+}
+
+impl RackSlot {
+    fn plain(font: usize, channels: u16, drums: bool) -> Self {
+        Self { font, channels, drums, filtered: 0, programs: u128::MAX, map: None }
+    }
 }
 
 enum Output {
@@ -122,8 +142,12 @@ pub struct Synth {
     fonts: Vec<Font>,
     /// Font index per MIDI channel (channel 10 plays the drum kit).
     routing: [usize; 16],
-    /// Sound pinned per channel (a preset of the channel's font).
+    /// Sound pinned per channel (a preset of the channel's font), this song.
     pins: [Option<usize>; 16],
+    /// Drum kit locked on channel 10 across songs, as (bank, program).
+    drum_lock: Option<(u16, u8)>,
+    /// Sound per GM instrument, whichever channel plays it.
+    instruments: BTreeMap<u8, InstrumentSound>,
     /// Engine slots as last sent.
     rack: Vec<RackSlot>,
     song: Option<Arc<smf::Song>>,
@@ -153,6 +177,8 @@ impl Synth {
             fonts: Vec::new(),
             routing: [0; 16],
             pins: [None; 16],
+            drum_lock: None,
+            instruments: BTreeMap::new(),
             rack: Vec::new(),
             song: None,
             state: PlayState::Empty,
@@ -214,25 +240,69 @@ impl Synth {
         }
     }
 
+    /// Instrument overrides that can sound: font loaded and preset found,
+    /// as program -> (font, preset).
+    fn resolved_instruments(&self) -> BTreeMap<u8, (usize, usize)> {
+        self.instruments
+            .iter()
+            .filter_map(|(&prog, s)| {
+                let inst = self.fonts.get(s.font)?.inst.as_ref()?;
+                Some((prog, (s.font, inst.find_preset(s.bank, s.program)?)))
+            })
+            .collect()
+    }
+
+    /// Channels with a pinned sound; instrument overrides leave them alone.
+    fn pinned(&self) -> u16 {
+        (0..16).filter(|&c| self.pins[c].is_some()).fold(0u16, |m, c| m | (1 << c))
+    }
+
     fn layout(&self) -> Vec<RackSlot> {
+        let overrides = self.resolved_instruments();
+        let overridden: u128 = overrides.keys().fold(0, |m, &p| m | (1u128 << p));
+        let melodic = !(1u16 << DRUM_CH);
+        let split = if overridden == 0 { 0 } else { melodic & !self.pinned() };
         let mut out = Vec::new();
         for font in 0..self.fonts.len() {
             let channels = (0..16).filter(|&c| c != DRUM_CH && self.effective_font(c) == Some(font)).fold(0u16, |m, c| m | (1 << c));
             if channels != 0 {
-                out.push(RackSlot { font, channels, drums: false });
+                out.push(RackSlot { filtered: channels & split, programs: !overridden, ..RackSlot::plain(font, channels, false) });
             }
             if self.effective_font(DRUM_CH) == Some(font) {
-                out.push(RackSlot { font, channels: 1 << DRUM_CH, drums: true });
+                out.push(RackSlot::plain(font, 1 << DRUM_CH, true));
+            }
+        }
+        // One slot per font that overrides instruments, over every channel
+        // that is not pinned; it only plays the programs it overrides.
+        if split != 0 {
+            let fonts: std::collections::BTreeSet<usize> = overrides.values().map(|v| v.0).collect();
+            for font in fonts {
+                let mut map = Box::new([NO_PRESET; 128]);
+                let mut programs = 0u128;
+                for (&prog, &(f, preset)) in &overrides {
+                    if f == font {
+                        map[prog as usize] = preset as u16;
+                        programs |= 1u128 << prog;
+                    }
+                }
+                out.push(RackSlot { font, channels: split, drums: false, filtered: split, programs, map: Some(map) });
             }
         }
         out
     }
 
     fn slot_params(&self, r: &RackSlot) -> SlotParams {
-        SlotParams { channels: r.channels, transpose: if r.drums { 0 } else { self.key }, ..SlotParams::default() }
+        SlotParams {
+            channels: r.channels,
+            transpose: if r.drums { 0 } else { self.key },
+            filtered: r.filtered,
+            programs: r.programs,
+            ..SlotParams::default()
+        }
     }
 
-    /// Bring the engine's slots in line with the fonts and routing.
+    /// Bring the engine's slots in line with the fonts, routing, pins and
+    /// instrument overrides.
     fn rebuild(&mut self) {
         let layout = self.layout();
         if layout == self.rack {
@@ -241,12 +311,15 @@ impl Synth {
         for _ in 0..self.rack.len() {
             self.send(Command::RemoveSlot(0));
         }
-        for r in &layout {
+        for (i, r) in layout.iter().enumerate() {
             let inst = self.fonts[r.font].inst.clone().expect("layout only uses loaded fonts");
             // A slot listening to channel 10 alone is not multitimbral, so
             // its default preset is what the drums play: the font's kit.
             let preset = if r.drums { drum_kit(&inst) } else { 0 };
             self.send(Command::AddSlot(Box::new(Slot::new(inst, preset, self.slot_params(r)))));
+            if let Some(map) = &r.map {
+                self.send(Command::SetProgramMap { slot: i, map: map.clone() });
+            }
         }
         self.rack = layout;
         self.send_strips();
@@ -259,22 +332,28 @@ impl Synth {
         }
     }
 
-    /// Engine slot that plays `ch`.
+    /// Engine slot of the font `ch` is routed to (where its pin lives).
     fn slot_of(&self, ch: usize) -> Option<usize> {
         let font = self.effective_font(ch)?;
-        self.rack.iter().position(|r| r.font == font && r.drums == (ch == DRUM_CH))
+        self.rack.iter().position(|r| r.font == font && r.map.is_none() && r.drums == (ch == DRUM_CH))
     }
 
-    fn engine_strip(&self, id: StripId) -> Option<(usize, usize)> {
+    /// Every engine slot that can sound `ch`.
+    fn slots_of(&self, ch: usize) -> impl Iterator<Item = usize> + '_ {
+        self.rack.iter().enumerate().filter(move |(_, r)| r.channels & (1 << ch) != 0).map(|(i, _)| i)
+    }
+
+    /// Engine (slot, strip) pairs behind a mixer strip.
+    fn engine_strips(&self, id: StripId) -> Vec<(usize, usize)> {
         match id {
-            StripId::Channel(ch) => Some((self.slot_of(ch)?, ch)),
-            StripId::Kit(g) => Some((self.slot_of(DRUM_CH)?, DRUM_STRIP_BASE + g)),
+            StripId::Channel(ch) => self.slots_of(ch).map(|s| (s, ch)).collect(),
+            StripId::Kit(g) => self.slot_of(DRUM_CH).map(|s| (s, DRUM_STRIP_BASE + g)).into_iter().collect(),
         }
     }
 
     fn send_pin(&self, ch: usize) {
         if let Some(slot) = self.slot_of(ch) {
-            self.send(Command::SetChannelPreset { slot, ch: ch as u8, preset: self.pins[ch] });
+            self.send(Command::SetChannelPreset { slot, ch: ch as u8, preset: self.pin(ch) });
         }
     }
 
@@ -287,9 +366,30 @@ impl Synth {
         }
     }
 
+    /// What the engine gets for a strip. Drum kit pieces also follow the
+    /// channel 10 strip, which acts as the fader for the whole kit.
+    fn engine_params(&self, id: StripId) -> StripParams {
+        match id {
+            StripId::Channel(_) => self.strip(id),
+            StripId::Kit(g) => {
+                let kit = self.mixer.kit[g];
+                let all = self.mixer.channels[DRUM_CH];
+                StripParams {
+                    gain_db: if all.gain_db <= -60.0 { -60.0 } else { kit.gain_db + all.gain_db },
+                    pan: (kit.pan + all.pan).clamp(-1.0, 1.0),
+                    mute: kit.mute || all.mute,
+                    solo: kit.solo || all.solo,
+                    ..kit
+                }
+                .clamped()
+            }
+        }
+    }
+
     fn send_strip(&self, id: StripId) {
-        if let Some((slot, strip)) = self.engine_strip(id) {
-            self.send(Command::SetStrip { slot, strip, params: self.strip(id) });
+        let params = self.engine_params(id);
+        for (slot, strip) in self.engine_strips(id) {
+            self.send(Command::SetStrip { slot, strip, params });
         }
     }
 
@@ -323,8 +423,17 @@ impl Synth {
             if *r == index {
                 *r = 0;
                 self.pins[ch] = None;
+                if ch == DRUM_CH {
+                    self.drum_lock = None;
+                }
             } else if *r > index {
                 *r -= 1;
+            }
+        }
+        self.instruments.retain(|_, s| s.font != index);
+        for s in self.instruments.values_mut() {
+            if s.font > index {
+                s.font -= 1;
             }
         }
         self.fonts.remove(index);
@@ -383,15 +492,60 @@ impl Synth {
         self.rebuild();
     }
 
+    /// Pinned sound of a channel; on channel 10 the locked drum kit.
     pub fn pin(&self, ch: usize) -> Option<usize> {
+        if ch == DRUM_CH {
+            let (bank, program) = self.drum_lock?;
+            return self.channel_font(DRUM_CH)?.find_preset(bank, program);
+        }
         self.pins[ch]
     }
 
     /// Pin a sound (a preset of the channel's font) on a channel, or
-    /// `None` to follow the song's program changes again.
+    /// `None` to follow the song's program changes again. On channel 10
+    /// this locks the drum kit for every song until unlocked.
     pub fn set_pin(&mut self, ch: usize, preset: Option<usize>) {
+        if ch == DRUM_CH {
+            self.drum_lock = preset.and_then(|p| self.channel_font(DRUM_CH)?.presets.get(p)).map(|p| (p.bank, p.program));
+            self.send_pin(ch);
+            return;
+        }
+        let was_pinned = self.pins[ch].is_some();
         self.pins[ch] = preset;
+        if was_pinned != preset.is_some() && !self.instruments.is_empty() {
+            // Pinned channels leave the instrument-override slots.
+            self.rebuild();
+        }
         self.send_pin(ch);
+    }
+
+    /// Locked drum kit as (bank, program).
+    pub fn drum_lock(&self) -> Option<(u16, u8)> {
+        self.drum_lock
+    }
+
+    pub fn set_drum_lock(&mut self, lock: Option<(u16, u8)>) {
+        self.drum_lock = lock;
+        self.send_pin(DRUM_CH);
+    }
+
+    pub fn instruments(&self) -> &BTreeMap<u8, InstrumentSound> {
+        &self.instruments
+    }
+
+    /// Play GM program `program` with `sound` on every channel that is not
+    /// pinned, or `None` to use the channel's font again.
+    pub fn set_instrument(&mut self, program: u8, sound: Option<InstrumentSound>) {
+        let program = program & 127;
+        match sound {
+            Some(s) if s.font < self.fonts.len() => {
+                self.instruments.insert(program, s);
+            }
+            _ => {
+                self.instruments.remove(&program);
+            }
+        }
+        self.rebuild();
     }
 
     /// The font instrument a channel plays.
@@ -513,6 +667,11 @@ impl Synth {
             StripId::Kit(g) => self.mixer.kit[g] = params,
         }
         self.send_strip(id);
+        if id == StripId::Channel(DRUM_CH) {
+            for g in 0..KIT {
+                self.send_strip(StripId::Kit(g));
+            }
+        }
     }
 
     pub fn set_fx(&mut self, fx: FxParams) {
@@ -524,11 +683,14 @@ impl Synth {
     /// its own parts); routing, the drum kit and effects stay as set.
     pub fn reset_channels(&mut self) {
         self.mixer.channels = [StripParams::default(); 16];
+        let had_pins = self.pinned() != 0;
+        self.pins = [None; 16];
+        self.send_strips();
+        if had_pins && !self.instruments.is_empty() {
+            self.rebuild();
+        }
         for ch in 0..16 {
-            self.send_strip(StripId::Channel(ch));
-            if self.pins[ch].take().is_some() {
-                self.send_pin(ch);
-            }
+            self.send_pin(ch);
         }
     }
 
@@ -540,9 +702,14 @@ impl Synth {
 
     /// Peak level (left, right) of a strip, 0..1+.
     pub fn strip_peak(&self, id: StripId) -> (f32, f32) {
-        let Some((slot, strip)) = self.engine_strip(id) else { return (0.0, 0.0) };
-        let m = &self.shared.slots[slot];
-        (load_peak(&m.strip_l[strip]), load_peak(&m.strip_r[strip]))
+        // Channel 10 shows the whole kit.
+        if id == StripId::Channel(DRUM_CH) {
+            return (0..KIT).map(|g| self.strip_peak(StripId::Kit(g))).fold((0.0, 0.0), |a, b| (a.0.max(b.0), a.1.max(b.1)));
+        }
+        self.engine_strips(id).into_iter().fold((0.0, 0.0), |acc, (slot, strip)| {
+            let m = &self.shared.slots[slot];
+            (acc.0.max(load_peak(&m.strip_l[strip])), acc.1.max(load_peak(&m.strip_r[strip])))
+        })
     }
 
     pub fn master_peak(&self) -> (f32, f32) {
@@ -552,12 +719,32 @@ impl Synth {
     /// Sound (preset) a channel is playing: its pin, or what the song's
     /// program change selected.
     pub fn channel_sound(&self, ch: usize) -> Option<&str> {
-        let font = self.channel_font(ch)?;
         let info = self.shared.slots[self.slot_of(ch)?].channels[ch].load();
         if info.program.is_none() && !info.locked && ch != DRUM_CH {
             return None;
         }
-        font.presets.get(info.preset).map(|p| p.name.as_str())
+        let slot = self.sounding_slot(ch)?;
+        let preset = self.shared.slots[slot].channels[ch].load().preset;
+        let font = self.fonts.get(self.rack[slot].font)?.inst.as_ref()?;
+        font.presets.get(preset).map(|p| p.name.as_str())
+    }
+
+    /// Font a channel is sounding from right now (an instrument override
+    /// can differ from the channel's routing).
+    pub fn sounding_font(&self, ch: usize) -> Option<usize> {
+        Some(self.rack[self.sounding_slot(ch)?].font)
+    }
+
+    /// The slot that plays new notes on `ch`: an instrument-override slot
+    /// when the channel's current program is overridden, else its own.
+    fn sounding_slot(&self, ch: usize) -> Option<usize> {
+        let home = self.slot_of(ch)?;
+        let program = self.shared.slots[home].channels[ch].load().program.unwrap_or(0) as u32;
+        let overridden = |s: &usize| {
+            let r = &self.rack[*s];
+            r.map.is_some() && r.filtered & (1 << ch) != 0 && (r.programs >> program) & 1 == 1
+        };
+        Some(self.slots_of(ch).find(overridden).unwrap_or(home))
     }
 
     // -------------------------------------------------------------- poll
@@ -803,9 +990,9 @@ mod tests {
         assert_eq!(
             s.rack,
             [
-                RackSlot { font: 0, channels: !(1 | 1 << DRUM_CH), drums: false },
-                RackSlot { font: 0, channels: 1 << DRUM_CH, drums: true },
-                RackSlot { font: 1, channels: 1, drums: false },
+                RackSlot::plain(0, !(1 | 1 << DRUM_CH), false),
+                RackSlot::plain(0, 1 << DRUM_CH, true),
+                RackSlot::plain(1, 1, false),
             ]
         );
         s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
@@ -831,6 +1018,79 @@ mod tests {
         s.remove_font(1);
         assert_eq!(s.routing()[0], 0);
         assert_eq!(s.rack.len(), 2);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn instruments_drum_lock_and_kit_fader() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608001.mid");
+        let Some(sf2) = crate::library::find_soundfont().filter(|_| midi.is_file()) else {
+            eprintln!("skipped: needs a .sf2 and the shared/NCN sample library");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("karaoke-gm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let second = dir.join("second.sf2");
+        std::fs::copy(&sf2, &second).unwrap();
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.add_font(sf2).unwrap();
+        s.add_font(second).unwrap();
+        let t0 = Instant::now();
+        while s.loading_soundfont() && t0.elapsed() < Duration::from_secs(60) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
+        s.play();
+        s.seek(20.0);
+        let shared = s.shared.clone();
+        let wait = |s: &mut Synth, ms: u64| {
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_millis(ms) {
+                s.poll();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        wait(&mut s, 300);
+        // Channel 1 plays GM program 27 (clean guitar) in this song.
+        let home = s.slot_of(0).unwrap();
+        let program = shared.slots[home].channels[0].load().program.expect("program change seen");
+        let font = s.fonts[1].inst.clone().unwrap();
+        let organ = font.presets.iter().find(|p| p.bank == 0 && p.program == 19).unwrap();
+        s.set_instrument(program, Some(InstrumentSound { font: 1, bank: 0, program: 19 }));
+        assert_eq!(s.rack.len(), 3, "main, drums, instrument slot");
+        wait(&mut s, 600);
+        assert_eq!(s.sounding_font(0), Some(1));
+        assert_eq!(s.channel_sound(0), Some(organ.name.as_str()));
+        let override_voices = shared.slots[2].voices.load(Ordering::Relaxed);
+        assert!(override_voices > 0 || s.strip_peak(StripId::Channel(0)).0 > 0.0, "the override slot plays");
+        // A pinned channel leaves the override.
+        s.set_pin(0, Some(0));
+        assert_eq!(s.rack[2].channels & 1, 0);
+        s.set_pin(0, None);
+        s.set_instrument(program, None);
+        assert_eq!(s.rack.len(), 2);
+
+        // Drum lock: kept through a new song and channel resets.
+        let kit = s.channel_font(DRUM_CH).unwrap().presets.iter().position(|p| p.bank == 128 && p.program == 25);
+        let kit = kit.or_else(|| s.channel_font(DRUM_CH).unwrap().presets.iter().position(|p| p.bank == 128)).unwrap();
+        s.set_pin(DRUM_CH, Some(kit));
+        let lock = s.drum_lock().unwrap();
+        s.reset_channels();
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
+        assert_eq!(s.drum_lock(), Some(lock));
+        assert_eq!(s.pin(DRUM_CH), Some(kit));
+        s.play();
+        wait(&mut s, 300);
+        let drum_slot = s.slot_of(DRUM_CH).unwrap();
+        assert_eq!(shared.slots[drum_slot].channels[DRUM_CH].load().preset, kit, "the song cannot change the kit");
+
+        // Channel 10's strip drives every kit piece.
+        let p = s.strip(StripId::Channel(DRUM_CH));
+        s.set_strip(StripId::Channel(DRUM_CH), StripParams { mute: true, gain_db: -6.0, ..p });
+        let kick = s.engine_params(StripId::Kit(0));
+        assert!(kick.mute && (kick.gain_db + 6.0).abs() < 1e-4);
         std::fs::remove_dir_all(dir).ok();
     }
 }

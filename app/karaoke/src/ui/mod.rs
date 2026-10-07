@@ -2,6 +2,7 @@
 //! under it, and everything else opens as an overlay on top.
 
 mod bar;
+mod mixer;
 pub mod overlay;
 mod stage;
 
@@ -19,6 +20,14 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             .resizable(false)
             .show_separator_line(false)
             .show(ui, |ui| bar::show(app, ui));
+        if app.mixer_open {
+            Panel::bottom("mixer")
+                .frame(Frame::new().fill(PANEL).stroke(Stroke::new(1.0, LINE)))
+                .exact_size(mixer::HEIGHT)
+                .resizable(false)
+                .show_separator_line(false)
+                .show(ui, |ui| mixer::show(app, ui));
+        }
     }
     egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui));
     overlay::show(app, &ctx);

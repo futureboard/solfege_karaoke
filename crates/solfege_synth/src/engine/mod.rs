@@ -42,7 +42,15 @@ pub struct SlotParams {
     pub bend_range: f32,
     pub mute: bool,
     pub solo: bool,
+    /// Channels whose notes this slot plays only while the channel's
+    /// current program is in `programs` (bit n = program n). Lets several
+    /// slots share a channel and split it by instrument.
+    pub filtered: u16,
+    pub programs: u128,
 }
+
+/// No program -> preset override (see [`Command::SetProgramMap`]).
+pub const NO_PRESET: u16 = u16::MAX;
 
 impl SlotParams {
     pub fn receives(&self, ch: u8) -> bool {
@@ -80,6 +88,8 @@ impl Default for SlotParams {
             bend_range: 2.0,
             mute: false,
             solo: false,
+            filtered: 0,
+            programs: u128::MAX,
         }
     }
 }
@@ -111,6 +121,9 @@ pub enum Command {
     SetStrip { slot: usize, strip: usize, params: StripParams },
     SetNoteGroups { slot: usize, groups: NoteGroups },
     SetFx(FxParams),
+    /// Preset to use per program number on the slot's filtered channels
+    /// (`NO_PRESET` = resolve the program as usual).
+    SetProgramMap { slot: usize, map: Box<[u16; 128]> },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -137,6 +150,7 @@ pub enum Garbage {
     Slot(#[allow(dead_code)] Box<Slot>),
     Inst(#[allow(dead_code)] Arc<Instrument>),
     Song(#[allow(dead_code)] Arc<Song>),
+    ProgramMap(#[allow(dead_code)] Box<[u16; 128]>),
 }
 
 /// Packed per-channel state of a slot, published for the Channels view.
@@ -593,6 +607,13 @@ impl Engine {
                 }
             }
             Command::SetFx(fx) => self.fx = fx.clamped(),
+            Command::SetProgramMap { slot, map } => match self.slots.get_mut(slot) {
+                Some(s) => {
+                    let old = std::mem::replace(&mut s.program_map, map);
+                    self.trash(Garbage::ProgramMap(old));
+                }
+                None => self.trash(Garbage::ProgramMap(map)),
+            },
             Command::Midi(msg) => self.route(msg),
             Command::Note { slot, key, vel } => {
                 if let Some(s) = self.slots.get_mut(slot) {

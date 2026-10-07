@@ -48,21 +48,22 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     // Right, laid out from the edge inwards.
     let mut x = row.right();
     let ctx = ui.ctx().clone();
-    // Right to left; `None` is full screen, the rest open an overlay page.
+    // Right to left; overlay pages, plus the mixer panel and full screen.
     let buttons: [(&str, &str, Option<Page>, bool, &str); 6] = [
         ("full", icons::FULLSCREEN, None, false, "เต็มจอ (F)"),
         ("settings", icons::SETTINGS, Some(Page::Settings), false, "ตั้งค่า (Ctrl+,)"),
         ("commands", icons::COMMAND, Some(Page::Commands), false, "คำสั่งทั้งหมด (Ctrl+K)"),
-        ("mixer", icons::MIXER, Some(Page::Mixer), app.synth.mixer_touched(), "มิกเซอร์ (M)"),
+        ("mixer", icons::MIXER, None, app.mixer_open || app.synth.mixer_touched(), "มิกเซอร์ (M)"),
         ("queue", icons::QUEUE, Some(Page::Queue), false, "คิวเพลง (Q)"),
         ("search", icons::SEARCH, Some(Page::Songs), false, "ค้นหาเพลง (/)"),
     ];
     for (id, icon, page, active, tip) in buttons {
         let c = pos2(x - 16.0, y);
         if ghost(ui, id, c, icon, active, true).on_hover_text(tip).clicked() {
-            match page {
-                Some(page) => app.open(page),
-                None => app.set_stage_only(&ctx, true),
+            match (page, id) {
+                (Some(page), _) => app.open(page),
+                (None, "mixer") => app.mixer_open = !app.mixer_open,
+                (None, _) => app.set_stage_only(&ctx, true),
             }
         }
         if id == "queue" && !app.queue.is_empty() {

@@ -213,3 +213,33 @@ fn channels_text_ranges() {
     assert_eq!(channels_text(0b1010_0000_0000_0111), "1-3,14,16");
     assert_eq!(channels_short(0b1010_1010_1010_1010, 9), "8ch");
 }
+
+#[test]
+fn program_filter_splits_a_channel_between_slots() {
+    use crate::engine::NO_PRESET;
+    let (tx, rx) = crossbeam_channel::bounded(64);
+    let (gtx, _g) = crossbeam_channel::bounded(64);
+    let shared = Arc::new(Shared::new());
+    let mut e = Engine::new(48000.0, rx, gtx, shared.clone());
+    // Slot 0 plays channel 1 except program 1; slot 1 plays only program 1,
+    // as the GS variation preset.
+    let main = SlotParams { channels: 1, filtered: 1, programs: !(1u128 << 1), ..SlotParams::default() };
+    let swap = SlotParams { channels: 1, filtered: 1, programs: 1u128 << 1, ..SlotParams::default() };
+    tx.send(Command::AddSlot(Box::new(Slot::new(gm_bank(), 0, main)))).unwrap();
+    tx.send(Command::AddSlot(Box::new(Slot::new(gm_bank(), 0, swap)))).unwrap();
+    let mut map = Box::new([NO_PRESET; 128]);
+    map[1] = 2;
+    tx.send(Command::SetProgramMap { slot: 1, map }).unwrap();
+    let voices = |s: usize| shared.slots[s].voices.load(std::sync::atomic::Ordering::Relaxed);
+
+    // Program 0: only the main slot sounds.
+    tx.send(Command::Midi([0x90, 60, 100])).unwrap();
+    run(&mut e);
+    assert_eq!((voices(0), voices(1)), (1, 0));
+    // Program 1: new notes go to the other slot, with the mapped preset.
+    tx.send(Command::Midi([0xC0, 1, 0])).unwrap();
+    tx.send(Command::Midi([0x90, 64, 100])).unwrap();
+    run(&mut e);
+    assert_eq!((voices(0), voices(1)), (1, 1));
+    assert_eq!(shared.slots[1].channels[0].load().preset, 2);
+}
