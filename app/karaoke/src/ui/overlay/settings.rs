@@ -82,12 +82,14 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) {
             ui.horizontal(|ui| {
                 let current = app.settings.device.clone().unwrap_or_else(|| "ค่าเริ่มต้นของระบบ".into());
                 let mut choice = app.settings.device.clone();
-                egui::ComboBox::from_id_salt("device").selected_text(current).width(340.0).show_ui(ui, |ui| {
+                crate::ui::fixed_width(ui, 340.0, |ui| egui::ComboBox::from_id_salt("device").truncate().selected_text(current).width(340.0).show_ui(ui, |ui| {
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                    ui.set_max_width(480.0);
                     ui.selectable_value(&mut choice, None, "ค่าเริ่มต้นของระบบ");
                     for d in &app.devices {
                         ui.selectable_value(&mut choice, Some(d.clone()), d);
                     }
-                });
+                }));
                 if choice != app.settings.device {
                     app.settings.device = choice;
                     app.reopen_output();

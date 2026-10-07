@@ -41,6 +41,18 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
 
 const POPUP_OPEN: &str = "popup-open-last-frame";
 
+/// Lay `add` out in a box exactly `width` wide. A truncating drop-down cuts
+/// its text at the space it is given, which in a row is the rest of the row;
+/// boxed, it ends with "…" at its own edge instead of pushing the row wider.
+pub fn fixed_width<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let size = egui::vec2(width, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.set_max_width(width);
+        add(ui)
+    })
+    .inner
+}
+
 /// A menu or drop-down is open (or was at the end of the last frame, as
 /// egui closes it on Esc before panels see the key). Esc and clicks then
 /// belong to the popup, not to the panel under it.

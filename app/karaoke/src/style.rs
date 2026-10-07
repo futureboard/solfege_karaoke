@@ -30,6 +30,30 @@ pub const UNSUNG: Color32 = Color32::from_rgb(0xf4, 0xf4, 0xf4);
 pub const ACCENT: Color32 = Color32::from_rgb(0x4f, 0xd1, 0xc5);
 pub const DANGER: Color32 = Color32::from_rgb(0xff, 0x5d, 0x73);
 
+/// A CJK font installed with the system, if there is one (none is bundled:
+/// they are tens of megabytes).
+fn system_fallback() -> Option<FontData> {
+    const CANDIDATES: &[&str] = &[
+        // Windows
+        "C:\\Windows\\Fonts\\msyh.ttc",
+        "C:\\Windows\\Fonts\\YuGothM.ttc",
+        "C:\\Windows\\Fonts\\msgothic.ttc",
+        "C:\\Windows\\Fonts\\malgun.ttf",
+        // macOS
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        // Linux
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    ];
+    CANDIDATES.iter().find_map(|p| std::fs::read(p).ok()).map(FontData::from_owned)
+}
+
 pub fn install(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     let add = |fonts: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
@@ -39,12 +63,19 @@ pub fn install(ctx: &egui::Context) {
     add(&mut fonts, "noto-thai-bold", include_bytes!("../assets/fonts/NotoSansThai-Bold.ttf"));
     add(&mut fonts, "noto-sans-bold", include_bytes!("../assets/fonts/NotoSans-Bold.ttf"));
     add(&mut fonts, "lucide", include_bytes!("../assets/fonts/lucide.ttf"));
+    // Last resort for names in other scripts (Chinese, Japanese, Korean
+    // SoundFont and song files): a font the system already has.
+    let fallback = system_fallback().map(|data| {
+        fonts.font_data.insert("system-fallback".into(), Arc::new(data));
+        "system-fallback".to_string()
+    });
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
         let list = fonts.families.entry(family).or_default();
         // Lucide first: its private-use code points would otherwise hit the
         // icon font egui ships. It has no other glyphs, so text falls through.
         list.insert(0, "lucide".into());
         list.push("noto-thai".into());
+        list.extend(fallback.clone());
     }
     // Thai first so a Thai phrase and its spaces shape as one run; Latin
     // letters fall through to Noto Sans.

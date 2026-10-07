@@ -204,22 +204,31 @@ fn font_picker(
         Some(i) => app.synth.fonts().get(i).map_or_else(|| RichText::new("—"), |f| label(i, &f.name())),
         None => RichText::new(none.unwrap_or("—")).color(DIM),
     };
+    let full = current.and_then(|i| app.synth.fonts().get(i)).map(|f| f.name());
     let mut pick = current;
-    egui::ComboBox::from_id_salt(id).selected_text(shown).width(width).height(320.0).show_ui(ui, |ui| {
+    let combo = crate::ui::fixed_width(ui, width, |ui| egui::ComboBox::from_id_salt(id).truncate().selected_text(shown).width(width).height(320.0).show_ui(ui, |ui| {
+        // Long file names end in "…" (full name on hover), so the list
+        // stays a sensible width.
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+        ui.set_max_width(width.max(380.0));
         if let Some(none) = none {
             ui.selectable_value(&mut pick, None, RichText::new(none).color(DIM));
         }
         for (i, f) in app.synth.fonts().iter().enumerate() {
             let state = if f.loading() { Some("กำลังโหลด…") } else if f.error.is_some() { Some("โหลดไม่ได้") } else { None };
             let text = match state {
-                Some(state) => RichText::new(format!("{}  {}  ·  {}   ({state})", icons::FILE_MUSIC, i + 1, f.name())).color(DIM),
+                // The state goes first so truncation only cuts the name.
+                Some(state) => RichText::new(format!("{}  {}  ·  ({state})  {}", icons::FILE_MUSIC, i + 1, f.name())).color(DIM),
                 None => label(i, &f.name()),
             };
             ui.add_enabled_ui(f.inst.is_some(), |ui| {
-                ui.selectable_value(&mut pick, Some(i), text);
+                ui.selectable_value(&mut pick, Some(i), text).on_hover_text(f.path.display().to_string());
             });
         }
-    });
+    }));
+    if let Some(full) = full {
+        combo.response.on_hover_text(full);
+    }
     (pick != current).then_some(pick)
 }
 
@@ -251,7 +260,10 @@ fn fonts_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                         font_badge(ui, i, 34.0);
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 3.0;
-                            ui.label(RichText::new(f.name()).size(15.0).strong().color(TEXT));
+                            // Leave room for the buttons on the right.
+                        ui.set_max_width((ui.available_width() - 190.0).max(120.0));
+                        ui.add(egui::Label::new(RichText::new(f.name()).size(15.0).strong().color(TEXT)).truncate())
+                            .on_hover_text(f.name());
                             let meta = if f.loading() {
                                 "กำลังโหลด…".to_string()
                             } else if f.error.is_some() {
@@ -374,7 +386,7 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
                             ui.add(egui::Label::new(RichText::new(name).color(if pinned { SUNG } else if active { TEXT } else { DIM })).truncate());
                         });
 
-                        if let Some(Some(f)) = font_picker(ui, app, ("ch-font", ch), Some(font), None, 190.0) {
+                        if let Some(Some(f)) = font_picker(ui, app, ("ch-font", ch), Some(font), None, 225.0) {
                             app.synth.set_route(ch, f);
                         }
 
@@ -389,12 +401,12 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
                             let list = presets(app.synth.channel_font(ch), false);
                             let mut pin = app.synth.pin(ch);
                             let shown = pin.and_then(|p| list.iter().find(|(i, _)| *i == p)).map_or("ตามเพลง".to_string(), |(_, n)| n.clone());
-                            egui::ComboBox::from_id_salt(("pin", ch)).selected_text(shown).width(230.0).height(320.0).show_ui(ui, |ui| {
+                            crate::ui::fixed_width(ui, 230.0, |ui| egui::ComboBox::from_id_salt(("pin", ch)).truncate().selected_text(shown).width(230.0).height(320.0).show_ui(ui, |ui| {
                                 ui.selectable_value(&mut pin, None, "ตามเพลง");
                                 for (i, name) in &list {
                                     ui.selectable_value(&mut pin, Some(*i), name);
                                 }
-                            });
+                            }));
                             if pin != app.synth.pin(ch) {
                                 app.synth.set_pin(ch, pin);
                             }
@@ -498,11 +510,11 @@ fn instruments_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::
                             let list = presets(font.as_ref(), false);
                             let mut pick = font.as_ref().and_then(|f| f.find_preset(sound.bank, sound.program));
                             let shown = pick.and_then(|p| list.iter().find(|(i, _)| *i == p)).map_or("—".to_string(), |(_, n)| n.clone());
-                            egui::ComboBox::from_id_salt(("gm-preset", program)).selected_text(shown).width(230.0).height(320.0).show_ui(ui, |ui| {
+                            crate::ui::fixed_width(ui, 230.0, |ui| egui::ComboBox::from_id_salt(("gm-preset", program)).truncate().selected_text(shown).width(230.0).height(320.0).show_ui(ui, |ui| {
                                 for (i, name) in &list {
                                     ui.selectable_value(&mut pick, Some(*i), name);
                                 }
-                            });
+                            }));
                             if let (Some(i), Some(f)) = (pick, &font)
                                 && Some(i) != f.find_preset(sound.bank, sound.program)
                             {
@@ -571,11 +583,11 @@ fn piece_rows(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                             let current = font.as_ref().and_then(|f| f.find_preset(s.bank, s.program));
                             let shown = current.and_then(|p| list.iter().find(|(i, _)| *i == p)).map_or("—".to_string(), |(_, n)| n.clone());
                             let mut pick = current;
-                            egui::ComboBox::from_id_salt(("piece-kit", g)).selected_text(shown).width(220.0).height(320.0).show_ui(ui, |ui| {
+                            crate::ui::fixed_width(ui, 220.0, |ui| egui::ComboBox::from_id_salt(("piece-kit", g)).truncate().selected_text(shown).width(220.0).height(320.0).show_ui(ui, |ui| {
                                 for (i, name) in &list {
                                     ui.selectable_value(&mut pick, Some(*i), name);
                                 }
-                            });
+                            }));
                             if pick != current
                                 && let Some(p) = pick.and_then(|p| font.as_ref()?.presets.get(p))
                             {
