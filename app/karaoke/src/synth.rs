@@ -243,7 +243,10 @@ impl Synth {
         }
         for r in &layout {
             let inst = self.fonts[r.font].inst.clone().expect("layout only uses loaded fonts");
-            self.send(Command::AddSlot(Box::new(Slot::new(inst, 0, self.slot_params(r)))));
+            // A slot listening to channel 10 alone is not multitimbral, so
+            // its default preset is what the drums play: the font's kit.
+            let preset = if r.drums { drum_kit(&inst) } else { 0 };
+            self.send(Command::AddSlot(Box::new(Slot::new(inst, preset, self.slot_params(r)))));
         }
         self.rack = layout;
         self.send_strips();
@@ -598,6 +601,11 @@ impl Synth {
     }
 }
 
+/// The standard drum kit of a font (bank 128), or its first kit.
+fn drum_kit(inst: &Instrument) -> usize {
+    inst.find_preset(128, 0).or_else(|| inst.presets.iter().position(|p| p.bank == 128)).unwrap_or(0)
+}
+
 /// Volume slider (0..1) to dB: 0.8 is unity, the bottom is silence.
 pub fn volume_db(v: f32) -> f32 {
     if v <= 0.001 { -120.0 } else { 40.0 * (v / 0.8).log10() }
@@ -697,6 +705,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(s.has_font());
+        // Before any program change, channel 10 already sits on a drum kit.
+        std::thread::sleep(Duration::from_millis(50));
+        let info = s.shared.slots[1].channels[DRUM_CH].load();
+        assert_eq!(s.channel_font(DRUM_CH).unwrap().presets[info.preset].bank, 128, "default drum kit");
         s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
         s.set_key(2);
         s.play();
@@ -712,6 +724,8 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(melodic > 0 && drums > 0, "melodic {melodic}, drums {drums}");
+        let kit = s.channel_font(DRUM_CH).unwrap().presets[shared.slots[1].channels[DRUM_CH].load().preset].bank;
+        assert_eq!(kit, 128, "channel 10 plays a drum kit");
         assert!(s.time() > 20.0);
     }
 
