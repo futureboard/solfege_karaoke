@@ -33,6 +33,8 @@ pub struct Settings {
     pub drum_lock: Option<(u16, u8)>,
     /// Sounds chosen per GM instrument.
     pub instruments: Vec<SavedInstrument>,
+    /// Kit pieces (kick, snare, ...) playing from a kit of their own.
+    pub pieces: Vec<SavedPiece>,
     /// Reverb and chorus (return levels and their parameters).
     pub fx: FxParams,
     pub device: Option<String>,
@@ -86,6 +88,7 @@ impl Default for Settings {
             routing: [0; 16],
             drum_lock: None,
             instruments: Vec::new(),
+            pieces: Vec::new(),
             fx: FxParams::default(),
             device: None,
             volume: 0.8,
@@ -104,6 +107,16 @@ impl Default for Settings {
 pub struct SavedInstrument {
     /// GM program 0..127.
     pub instrument: u8,
+    pub font: PathBuf,
+    pub bank: u16,
+    pub program: u8,
+}
+
+/// A kit piece's own kit, saved by font file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SavedPiece {
+    /// 0 kick, 1 snare, 2 hi-hat, 3 toms, 4 cymbals, 5 percussion.
+    pub piece: usize,
     pub font: PathBuf,
     pub bank: u16,
     pub program: u8,

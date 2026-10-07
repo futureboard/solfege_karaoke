@@ -47,6 +47,9 @@ pub struct SlotParams {
     /// slots share a channel and split it by instrument.
     pub filtered: u16,
     pub programs: u128,
+    /// Keys this slot plays on rhythm (drum) channels, bit n = key n. Lets
+    /// several slots share a drum channel and split the kit by piece.
+    pub drum_keys: u128,
 }
 
 /// No program -> preset override (see [`Command::SetProgramMap`]).
@@ -90,6 +93,7 @@ impl Default for SlotParams {
             solo: false,
             filtered: 0,
             programs: u128::MAX,
+            drum_keys: u128::MAX,
         }
     }
 }

@@ -8,7 +8,7 @@ use solfege_sfkar::KarSong;
 use solfege_songdb::Song;
 use solfege_synth::engine::PlayState;
 
-use crate::config::{self, ConfigFile, SavedInstrument, Settings};
+use crate::config::{self, ConfigFile, SavedInstrument, SavedPiece, Settings};
 use crate::dialog::{Dialogs, Pick};
 use crate::library::{self, Library};
 use crate::synth::{InstrumentSound, Synth, SynthEvent};
@@ -145,6 +145,11 @@ impl KaraokeApp {
                 app.synth.set_instrument(saved.instrument, Some(sound));
             }
         }
+        for saved in app.settings.pieces.clone() {
+            if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
+                app.synth.set_piece(saved.piece, Some(InstrumentSound { font, bank: saved.bank, program: saved.program }));
+            }
+        }
         if app.synth.fonts().is_empty() {
             app.toast_error("ยังไม่มี SoundFont (.sf2) — เพิ่มได้ที่แท็บ เสียง (S)".into());
         }
@@ -229,6 +234,15 @@ impl KaraokeApp {
         } else {
             self.toast(format!("เพิ่มในคิว: {}", entry.title));
             self.queue.push_back(entry);
+        }
+    }
+
+    /// Stop and go back to the start of the song; it stays loaded, so
+    /// Play starts it again. The queue does not move on.
+    pub fn stop(&mut self) {
+        self.synth.stop();
+        if let Some(n) = &mut self.now {
+            n.finished = false;
         }
     }
 
@@ -372,6 +386,9 @@ impl KaraokeApp {
         if pressed(Key::L) {
             self.toggle_lyric_mode();
         }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Space)) {
+            self.stop();
+        }
         if pressed(Key::Space) {
             self.synth.toggle();
         }
@@ -461,6 +478,16 @@ impl eframe::App for KaraokeApp {
             .iter()
             .filter_map(|(&instrument, s)| {
                 Some(SavedInstrument { instrument, font: paths.get(s.font)?.clone(), bank: s.bank, program: s.program })
+            })
+            .collect();
+        self.settings.pieces = self
+            .synth
+            .pieces()
+            .iter()
+            .enumerate()
+            .filter_map(|(piece, s)| {
+                let s = s.as_ref()?;
+                Some(SavedPiece { piece, font: paths.get(s.font)?.clone(), bank: s.bank, program: s.program })
             })
             .collect();
         if let Err(e) = self.config.save(&self.settings) {

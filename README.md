@@ -42,6 +42,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | Four-beat count-in after a long rest | Right-click menu on the stage |
 | ![Classic lyrics](docs/screenshots/classic.png) | ![About](docs/screenshots/about.png) |
 | Classic layout: two lines that take turns (`L`) | About page |
+| ![A kit per drum piece](docs/screenshots/drum-pieces.png) | |
+| Kick, snare, ... each from its own SoundFont and kit | |
 
 ## What is in here
 
@@ -99,12 +101,17 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   or choose the sound of any of the 128 General MIDI instruments, from
   any font, for whichever channel plays it.
 - **Drum kit lock.** Lock channel 10 to one kit; songs cannot change it.
+- **A kit per drum piece.** Kick, snare, hi-hat, toms, cymbals and
+  percussion can each play from a kit of their own, from any SoundFont;
+  the pieces left alone play from channel 10's kit. Their mixer strips
+  work the same either way.
 
 ### Keyboard
 
 | Key | | Key | |
 |---|---|---|---|
 | `Space` | play / pause | `/` | search songs |
+| `Shift Space` | stop (back to the start) | | |
 | `←` `→` | back / forward 5 s | `Q` | queue |
 | `[` `]` | key down / up | `M` | mixer panel |
 | `,` `.` | slower / faster | `S` | sound settings window |

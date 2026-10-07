@@ -8,7 +8,7 @@ use crate::app::KaraokeApp;
 use crate::gm;
 use crate::icons;
 use crate::style::{self, DANGER, DIM, INK, LINE, PANEL, RAISED, SUNG, TEXT, font_color};
-use crate::synth::{DRUM_CH, InstrumentSound, MAX_FONTS};
+use crate::synth::{DRUM_CH, InstrumentSound, KIT, MAX_FONTS, kit_name};
 use crate::dialog::Pick;
 use crate::ui::overlay::keycap;
 
@@ -40,7 +40,7 @@ impl SoundPanel {
 pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
     let Some(mut panel) = app.sound.take() else { return };
     let mut open = true;
-    if !ctx.any_popup_open() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+    if !crate::ui::popup_open(ctx) && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
         open = false;
     }
 
@@ -106,7 +106,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
         });
     // Meters and "now playing" names follow the music.
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
-    if clicked_outside && !ctx.any_popup_open() {
+    if clicked_outside && !crate::ui::popup_open(ctx) {
         open = false;
     }
     if open {
@@ -236,49 +236,51 @@ fn fonts_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let mut all = None;
     let mut copy = None;
     for (i, f) in app.synth.fonts().iter().enumerate() {
-        let card = Frame::new()
-            .fill(RAISED)
-            .corner_radius(CornerRadius::same(12))
-            .inner_margin(Margin::symmetric(14, 12))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    font_badge(ui, i, 34.0);
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 3.0;
-                        ui.label(RichText::new(f.name()).size(15.0).strong().color(TEXT));
-                        let meta = if f.loading() {
-                            "กำลังโหลด…".to_string()
-                        } else if f.error.is_some() {
-                            "โหลดไม่ได้".to_string()
-                        } else {
-                            let presets = f.inst.as_ref().map_or(0, |inst| inst.presets.len());
-                            let channels = routing.iter().filter(|&&r| r == i).count();
-                            let inst = instruments.iter().filter(|&&x| x == i).count();
-                            format!("{presets} เสียง  ·  {channels} แชนแนล  ·  {inst} เครื่องดนตรี")
-                        };
-                        let r = ui.label(RichText::new(meta).size(12.0).color(if f.error.is_some() { DANGER } else { DIM }));
-                        if let Some(e) = &f.error {
-                            r.on_hover_text(e);
-                        }
-                        ui.add(egui::Label::new(RichText::new(f.path.display().to_string()).monospace().size(11.0).color(DIM)).truncate());
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        if ui.button(icons::REMOVE).on_hover_text("เอาออกจาก rack (ไม่ลบไฟล์)").clicked() {
-                            remove = Some(i);
-                        }
-                        if f.inst.is_some() && routing.iter().any(|&r| r != i) && ui.button("ใช้กับทุกแชนแนล").clicked() {
-                            all = Some(i);
-                        }
-                        if f.loading() {
-                            ui.spinner();
-                        }
+        let card = ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()), |ui| {
+            Frame::new()
+                .fill(RAISED)
+                .corner_radius(CornerRadius::same(12))
+                .inner_margin(Margin::symmetric(14, 12))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        font_badge(ui, i, 34.0);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 3.0;
+                            ui.label(RichText::new(f.name()).size(15.0).strong().color(TEXT));
+                            let meta = if f.loading() {
+                                "กำลังโหลด…".to_string()
+                            } else if f.error.is_some() {
+                                "โหลดไม่ได้".to_string()
+                            } else {
+                                let presets = f.inst.as_ref().map_or(0, |inst| inst.presets.len());
+                                let channels = routing.iter().filter(|&&r| r == i).count();
+                                let inst = instruments.iter().filter(|&&x| x == i).count();
+                                format!("{presets} เสียง  ·  {channels} แชนแนล  ·  {inst} เครื่องดนตรี")
+                            };
+                            let r = ui.label(RichText::new(meta).size(12.0).color(if f.error.is_some() { DANGER } else { DIM }));
+                            if let Some(e) = &f.error {
+                                r.on_hover_text(e);
+                            }
+                            ui.add(egui::Label::new(RichText::new(f.path.display().to_string()).monospace().size(11.0).color(DIM)).truncate());
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            if ui.button(icons::REMOVE).on_hover_text("เอาออกจาก rack (ไม่ลบไฟล์)").clicked() {
+                                remove = Some(i);
+                            }
+                            if f.inst.is_some() && routing.iter().any(|&r| r != i) && ui.button("ใช้กับทุกแชนแนล").clicked() {
+                                all = Some(i);
+                            }
+                            if f.loading() {
+                                ui.spinner();
+                            }
+                        });
                     });
                 });
-            });
-        card.response.interact(Sense::click()).context_menu(|ui| {
+        });
+        card.response.context_menu(|ui| {
             use crate::ui::menu::{heading, item, item_if};
             heading(ui, &format!("SoundFont {}  ·  {}", i + 1, f.name()));
             if item_if(ui, f.inst.is_some() && routing.iter().any(|&r| r != i), icons::MIXER, "ใช้กับทุกแชนแนล", "") {
@@ -343,60 +345,62 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
     for ch in 0..16 {
         let active = used == 0 || used & (1 << ch) != 0;
         let font = app.synth.routing()[ch];
-        let row = Frame::new()
-            .fill(if active { RAISED } else { style::mix(INK, RAISED, 0.4) })
-            .corner_radius(CornerRadius::same(10))
-            .inner_margin(Margin::symmetric(12, 8))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    // Channel number in its font's colour.
-                    let (rect, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
-                    let c = font_color(app.synth.sounding_font(ch).unwrap_or(font));
-                    ui.painter().rect_filled(rect, CornerRadius::same(9), c.gamma_multiply(if active { 0.2 } else { 0.08 }));
-                    let label = if ch == DRUM_CH { icons::DRUM.to_string() } else { (ch + 1).to_string() };
-                    ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(14.0), if active { c } else { DIM });
+        let row = ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()), |ui| {
+            Frame::new()
+                .fill(if active { RAISED } else { style::mix(INK, RAISED, 0.4) })
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        // Channel number in its font's colour.
+                        let (rect, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
+                        let c = font_color(app.synth.sounding_font(ch).unwrap_or(font));
+                        ui.painter().rect_filled(rect, CornerRadius::same(9), c.gamma_multiply(if active { 0.2 } else { 0.08 }));
+                        let label = if ch == DRUM_CH { icons::DRUM.to_string() } else { (ch + 1).to_string() };
+                        ui.painter().text(rect.center(), Align2::CENTER_CENTER, label, FontId::proportional(14.0), if active { c } else { DIM });
 
-                    ui.vertical(|ui| {
-                        ui.set_width(210.0);
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        let name = app.synth.channel_sound(ch).unwrap_or(if active { "—" } else { "ไม่ได้ใช้ในเพลงนี้" }).to_string();
-                        let pinned = app.synth.pin(ch).is_some();
-                        let head = if ch == DRUM_CH { "แชนแนล 10 · กลอง".to_string() } else { format!("แชนแนล {}", ch + 1) };
-                        ui.label(RichText::new(head).size(11.0).color(DIM));
-                        ui.add(egui::Label::new(RichText::new(name).color(if pinned { SUNG } else if active { TEXT } else { DIM })).truncate());
-                    });
-
-                    if let Some(Some(f)) = font_chips(ui, app, Some(font), None) {
-                        app.synth.set_route(ch, f);
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ch == DRUM_CH {
-                            let text = if app.synth.drum_lock().is_some() { format!("{}  ล็อกอยู่", icons::LOCK) } else { "ชุดกลอง…".to_string() };
-                            if ui.button(text).clicked() {
-                                panel.tab = Tab::Drums;
-                            }
-                            return;
-                        }
-                        let list = presets(app.synth.channel_font(ch), false);
-                        let mut pin = app.synth.pin(ch);
-                        let shown = pin.and_then(|p| list.iter().find(|(i, _)| *i == p)).map_or("ตามเพลง".to_string(), |(_, n)| n.clone());
-                        egui::ComboBox::from_id_salt(("pin", ch)).selected_text(shown).width(230.0).height(320.0).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut pin, None, "ตามเพลง");
-                            for (i, name) in &list {
-                                ui.selectable_value(&mut pin, Some(*i), name);
-                            }
+                        ui.vertical(|ui| {
+                            ui.set_width(210.0);
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            let name = app.synth.channel_sound(ch).unwrap_or(if active { "—" } else { "ไม่ได้ใช้ในเพลงนี้" }).to_string();
+                            let pinned = app.synth.pin(ch).is_some();
+                            let head = if ch == DRUM_CH { "แชนแนล 10 · กลอง".to_string() } else { format!("แชนแนล {}", ch + 1) };
+                            ui.label(RichText::new(head).size(11.0).color(DIM));
+                            ui.add(egui::Label::new(RichText::new(name).color(if pinned { SUNG } else if active { TEXT } else { DIM })).truncate());
                         });
-                        if pin != app.synth.pin(ch) {
-                            app.synth.set_pin(ch, pin);
+
+                        if let Some(Some(f)) = font_chips(ui, app, Some(font), None) {
+                            app.synth.set_route(ch, f);
                         }
-                        ui.label(RichText::new("ปักเสียง").size(11.0).color(DIM));
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ch == DRUM_CH {
+                                let text = if app.synth.drum_lock().is_some() { format!("{}  ล็อกอยู่", icons::LOCK) } else { "ชุดกลอง…".to_string() };
+                                if ui.button(text).clicked() {
+                                    panel.tab = Tab::Drums;
+                                }
+                                return;
+                            }
+                            let list = presets(app.synth.channel_font(ch), false);
+                            let mut pin = app.synth.pin(ch);
+                            let shown = pin.and_then(|p| list.iter().find(|(i, _)| *i == p)).map_or("ตามเพลง".to_string(), |(_, n)| n.clone());
+                            egui::ComboBox::from_id_salt(("pin", ch)).selected_text(shown).width(230.0).height(320.0).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut pin, None, "ตามเพลง");
+                                for (i, name) in &list {
+                                    ui.selectable_value(&mut pin, Some(*i), name);
+                                }
+                            });
+                            if pin != app.synth.pin(ch) {
+                                app.synth.set_pin(ch, pin);
+                            }
+                            ui.label(RichText::new("ปักเสียง").size(11.0).color(DIM));
+                        });
                     });
                 });
-            });
-        row.response.interact(Sense::click()).context_menu(|ui| channel_menu(app, panel, ui, ch));
+        });
+        row.response.context_menu(|ui| channel_menu(app, panel, ui, ch));
     }
 }
 
@@ -525,6 +529,82 @@ fn default_sound(app: &KaraokeApp, font: usize, program: u8) -> Option<Instrumen
 
 // ------------------------------------------------------------------ drums
 
+/// Kick, snare, hats, toms, cymbals and percussion: each can play from a
+/// kit of its own, from any font, instead of channel 10's kit.
+fn piece_rows(app: &mut KaraokeApp, ui: &mut egui::Ui) {
+    ui.label(RichText::new("แยกเสียงกลองแต่ละชิ้น").size(15.0).strong().color(TEXT));
+    ui.label(RichText::new("ให้กระเดื่อง สแนร์ ไฮแฮต ฯลฯ ใช้ชุดกลองจาก SoundFont อื่นได้ทีละชิ้น ชิ้นที่ไม่ได้แยกจะใช้ชุดหลัก").size(12.0).color(DIM));
+    for g in 0..KIT {
+        let piece = app.synth.pieces()[g];
+        let row = ui.scope_builder(egui::UiBuilder::new().sense(Sense::click()), |ui| {
+            Frame::new()
+                .fill(if piece.is_some() { RAISED } else { style::mix(INK, RAISED, 0.5) })
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(Margin::symmetric(12, 7))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        let (rect, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
+                        let c = piece.map_or(DIM, |s| font_color(s.font));
+                        ui.painter().rect_filled(rect, CornerRadius::same(8), c.gamma_multiply(0.18));
+                        ui.painter().text(rect.center(), Align2::CENTER_CENTER, icons::DRUM, FontId::proportional(14.0), c);
+                        ui.vertical(|ui| {
+                            ui.set_width(170.0);
+                            ui.spacing_mut().item_spacing.y = 1.0;
+                            ui.label(RichText::new(kit_name(g)).color(TEXT));
+                            let sound = app.synth.piece_sound(g).unwrap_or_else(|| "—".into());
+                            let note = if piece.is_some() { sound } else { format!("ตามชุดหลัก · {sound}") };
+                            ui.add(egui::Label::new(RichText::new(note).size(11.0).color(if piece.is_some() { SUNG } else { DIM })).truncate());
+                        });
+                        if let Some(choice) = font_chips(ui, app, piece.map(|s| s.font), Some("ตามชุดหลัก")) {
+                            let sound = choice.and_then(|font| default_kit(app, font));
+                            app.synth.set_piece(g, sound);
+                        }
+                        let Some(s) = piece else { return };
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let font = app.synth.fonts().get(s.font).and_then(|f| f.inst.clone());
+                            let list = presets(font.as_ref(), true);
+                            let current = font.as_ref().and_then(|f| f.find_preset(s.bank, s.program));
+                            let shown = current.and_then(|p| list.iter().find(|(i, _)| *i == p)).map_or("—".to_string(), |(_, n)| n.clone());
+                            let mut pick = current;
+                            egui::ComboBox::from_id_salt(("piece-kit", g)).selected_text(shown).width(220.0).height(320.0).show_ui(ui, |ui| {
+                                for (i, name) in &list {
+                                    ui.selectable_value(&mut pick, Some(*i), name);
+                                }
+                            });
+                            if pick != current
+                                && let Some(p) = pick.and_then(|p| font.as_ref()?.presets.get(p))
+                            {
+                                app.synth.set_piece(g, Some(InstrumentSound { font: s.font, bank: p.bank, program: p.program }));
+                            }
+                        });
+                    });
+                });
+        });
+        row.response.context_menu(|ui| {
+            use crate::ui::menu::{heading, item_if};
+            heading(ui, kit_name(g));
+            if item_if(ui, piece.is_some(), icons::UNDO, "กลับไปใช้ชุดหลัก", "") {
+                app.synth.set_piece(g, None);
+            }
+            if item_if(ui, app.synth.pieces().iter().any(Option::is_some), icons::RESTART, "ทุกชิ้นใช้ชุดหลัก", "") {
+                for k in 0..KIT {
+                    app.synth.set_piece(k, None);
+                }
+            }
+        });
+    }
+}
+
+/// A font's standard kit (128:0, else its first kit, else its first preset).
+fn default_kit(app: &KaraokeApp, font: usize) -> Option<InstrumentSound> {
+    let inst = app.synth.fonts().get(font)?.inst.as_ref()?;
+    let i = inst.find_preset(128, 0).or_else(|| inst.presets.iter().position(|p| p.bank == 128)).unwrap_or(0);
+    let p = inst.presets.get(i)?;
+    Some(InstrumentSound { font, bank: p.bank, program: p.program })
+}
+
 fn drums_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     title(ui, "ชุดกลอง (แชนแนล 10)", "เลือก SoundFont ของกลอง และล็อกชุดกลองไว้ทุกเพลง — เพลงจะเปลี่ยนชุดกลองเองไม่ได้");
     ui.horizontal(|ui| {
@@ -536,7 +616,11 @@ fn drums_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     });
     let now = app.synth.channel_sound(DRUM_CH).unwrap_or("—").to_string();
     ui.label(RichText::new(format!("กำลังเล่น: {now}")).color(TEXT));
-    ui.add_space(6.0);
+    ui.add_space(10.0);
+    piece_rows(app, ui);
+    ui.add_space(10.0);
+    ui.label(RichText::new("ล็อกชุดกลองหลัก").size(15.0).strong().color(TEXT));
+    ui.label(RichText::new("ชุดที่ชิ้นกลองซึ่งไม่ได้แยกเสียงไว้ใช้เล่น").size(12.0).color(DIM));
     let kits = presets(app.synth.channel_font(DRUM_CH), true);
     let current = app.synth.pin(DRUM_CH);
     let mut pick: Option<Option<usize>> = None;
