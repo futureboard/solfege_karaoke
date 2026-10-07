@@ -59,9 +59,12 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   tempo from 50 % to 150 %; BPM and key are shown live.
 - **Mixer.** Its own panel, docked under the lyrics: all 16 MIDI channels
   (channel 10 is the fader for the whole drum kit), each drum-kit piece,
-  reverb and chorus returns and master, with gain, pan, mute, solo and
-  meters. Pan starts from the song's own L/R (MIDI CC 10) and the knob
-  adds your offset on top; double-click returns to the song's pan.
+  reverb and chorus returns and master, with gain, pan, mute, solo,
+  reverb / chorus sends and meters. Pan and sends start from the song's
+  own values (MIDI CC 10, 91, 93) and your adjustment goes on top;
+  double-click returns to the song's value. The reverb (room, damping,
+  width) and chorus (rate, depth, delay) are adjustable on their return
+  strips and remembered between runs.
 - **Sound settings window.** SoundFonts, channels, instruments and the
   drum kit have their own window (`S` or the bar button), separate from
   the command overlay.

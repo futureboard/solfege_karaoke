@@ -722,6 +722,8 @@ impl Slot {
             volume: c.volume_raw,
             pan: c.pan_raw,
             expression: c.expression_raw,
+            reverb: (c.reverb * 127.0).round() as u8,
+            chorus: (c.chorus * 127.0).round() as u8,
             bend: c.bend_raw,
             sustain: c.sustain,
             drum: c.drum,

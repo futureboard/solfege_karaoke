@@ -2,10 +2,11 @@
 //! lyrics stay visible. Always 16 channel strips (channel 10 is the fader
 //! for the whole drum kit), then each piece of the kit, the reverb and
 //! chorus returns and the master. Strips are the engine's own (gain, pan,
-//! mute, solo) with live meters.
+//! mute, solo, reverb and chorus sends) with live meters; pan and sends
+//! start from the song's own controllers (CC 10, 91, 93).
 
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Margin, Painter, Rect, Sense, Stroke, pos2, vec2};
-use solfege_synth::engine::mixer::StripParams;
+use solfege_synth::engine::mixer::{FxParams, StripParams};
 
 use crate::app::KaraokeApp;
 use crate::icons;
@@ -13,14 +14,19 @@ use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, RAISED, SUNG, TEXT};
 use crate::synth::{DRUM_CH, KIT, StripId, kit_name, volume_db};
 
 /// Panel height, strips included.
-pub const HEIGHT: f32 = 336.0;
-const H: f32 = 270.0;
+pub const HEIGHT: f32 = 364.0;
+const H: f32 = 298.0;
 const GAP: f32 = 3.0;
 const GROUP_GAP: f32 = 14.0;
 const STRIPS: f32 = 16.0 + KIT as f32 + 3.0;
 /// Fader range in dB.
 const MIN_DB: f32 = -60.0;
 const MAX_DB: f32 = 12.0;
+const REVERB: Color32 = Color32::from_rgb(0xa7, 0x8b, 0xfa);
+const CHORUS: Color32 = Color32::from_rgb(0x60, 0xa5, 0xfa);
+/// Where the send rows and the fader start, from the top of a strip.
+const SENDS_Y: f32 = 94.0;
+const FADER_Y: f32 = 134.0;
 
 /// Fader travel (0..1) for a gain, squared so the useful range near 0 dB
 /// gets most of the length.
@@ -78,7 +84,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.label(egui::RichText::new(format!("{}  มิกเซอร์", icons::MIXER)).strong().color(TEXT));
-            ui.label(egui::RichText::new("ลากเพื่อปรับ · ดับเบิลคลิกค่าเริ่มต้น · ช่อง 10 คุมกลองทั้งชุด").size(12.0).color(DIM));
+            ui.label(egui::RichText::new("ลากเพื่อปรับ · ดับเบิลคลิกค่าเริ่มต้น · REV / CHO ส่งเข้าเอฟเฟกต์ · ช่อง 10 คุมกลองทั้งชุด").size(12.0).color(DIM));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(icons::REMOVE).on_hover_text("ปิดมิกเซอร์ (M)").clicked() {
                     app.mixer_open = false;
@@ -200,17 +206,60 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
         if params != app.synth.strip(s) {
             app.synth.set_strip(s, params);
         }
+
+        // Reverb / chorus sends: the song's CC 91 / 93 plus the user's
+        // offset, like the pan.
+        let (rev_midi, cho_midi) = app.synth.midi_sends(match s {
+            StripId::Channel(ch) => ch,
+            StripId::Kit(_) => DRUM_CH,
+        });
+        let mut params = app.synth.strip(s);
+        for (k, (label, color, midi, add)) in
+            [("REV", REVERB, rev_midi, &mut params.reverb_add), ("CHO", CHORUS, cho_midi, &mut params.chorus_add)].into_iter().enumerate()
+        {
+            let r = row_rect(rect, SENDS_Y + k as f32 * 19.0);
+            let heard = (midi + *add).clamp(0.0, 1.0);
+            let marker = (add.abs() > 0.004).then_some(midi);
+            let resp = bar(ui, &p, r, id.with(label), label, heard, marker, color, &format!("{:.0}", heard * 127.0));
+            if resp.double_clicked() {
+                *add = 0.0;
+            } else if let Some(v) = drag_value(&resp, r) {
+                *add = v - midi;
+            }
+            let name = if k == 0 { "ส่งเข้ารีเวิร์บ" } else { "ส่งเข้าคอรัส" };
+            let cc = if k == 0 { 91 } else { 93 };
+            let tip = if marker.is_some() {
+                format!("{name} · เพลง {:.0} · ปรับ {:+.0} · ได้ {:.0}\nดับเบิลคลิกเพื่อกลับไปตามเพลง", midi * 127.0, *add * 127.0, heard * 127.0)
+            } else {
+                format!("{name} (MIDI CC{cc}): {:.0} จาก 127 · ลากเพื่อปรับ", midi * 127.0)
+            };
+            resp.on_hover_text(tip);
+        }
+        if params != app.synth.strip(s) {
+            app.synth.set_strip(s, params);
+        }
+    }
+
+    // Effect parameters on the return strips.
+    if matches!(c.kind, Kind::Reverb | Kind::Chorus) {
+        fx_controls(app, ui, &p, rect, id, matches!(c.kind, Kind::Reverb));
     }
 
     // Fader with meters.
-    let fader = Rect::from_min_max(pos2(rect.left() + 8.0, rect.top() + 98.0), pos2(rect.right() - 8.0, rect.bottom() - 28.0));
+    let fader = Rect::from_min_max(pos2(rect.left() + 8.0, rect.top() + FADER_Y), pos2(rect.right() - 8.0, rect.bottom() - 28.0));
     let (norm, peaks, label) = match c.kind {
         Kind::Strip(s) => {
             let params = app.synth.strip(s);
             (db_to_norm(params.gain_db), app.synth.strip_peak(s), db_text(params.gain_db))
         }
-        Kind::Reverb => (app.synth.mixer().fx.reverb_return / 2.0, (0.0, 0.0), format!("{:.0}%", app.synth.mixer().fx.reverb_return * 100.0)),
-        Kind::Chorus => (app.synth.mixer().fx.chorus_return / 2.0, (0.0, 0.0), format!("{:.0}%", app.synth.mixer().fx.chorus_return * 100.0)),
+        Kind::Reverb => {
+            let peak = app.synth.fx_peak().0;
+            (app.synth.mixer().fx.reverb_return / 2.0, (peak, peak), format!("{:.0}%", app.synth.mixer().fx.reverb_return * 100.0))
+        }
+        Kind::Chorus => {
+            let peak = app.synth.fx_peak().1;
+            (app.synth.mixer().fx.chorus_return / 2.0, (peak, peak), format!("{:.0}%", app.synth.mixer().fx.chorus_return * 100.0))
+        }
         Kind::Master => (app.synth.volume(), app.synth.master_peak(), db_text(volume_db(app.synth.volume()))),
     };
     let resp = ui.interact(fader, id.with("fader"), Sense::click_and_drag());
@@ -235,20 +284,97 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
             }
             Kind::Reverb => {
                 let fx = app.synth.mixer().fx;
-                app.synth.set_fx(solfege_synth::engine::mixer::FxParams { reverb_return: n * 2.0, ..fx });
+                app.synth.set_fx(FxParams { reverb_return: n * 2.0, ..fx });
             }
             Kind::Chorus => {
                 let fx = app.synth.mixer().fx;
-                app.synth.set_fx(solfege_synth::engine::mixer::FxParams { chorus_return: n * 2.0, ..fx });
+                app.synth.set_fx(FxParams { chorus_return: n * 2.0, ..fx });
             }
             Kind::Master => app.synth.set_volume(n),
         }
     }
     let muted = strip.is_some_and(|s| app.synth.strip(s).mute);
-    draw_fader(&p, fader, norm, peaks, resp.hovered() || resp.dragged(), muted, strip.is_some() || matches!(c.kind, Kind::Master));
-    resp.on_hover_text("ลากเพื่อปรับ · ดับเบิลคลิกเพื่อค่าเริ่มต้น");
+    draw_fader(&p, fader, norm, peaks, resp.hovered() || resp.dragged(), muted, true);
+    resp.on_hover_text(match c.kind {
+        Kind::Reverb => "ระดับรีเวิร์บที่กลับเข้ามิกซ์ (มิเตอร์คือเสียงที่ส่งเข้า) · ดับเบิลคลิกเพื่อค่าเริ่มต้น",
+        Kind::Chorus => "ระดับคอรัสที่กลับเข้ามิกซ์ (มิเตอร์คือเสียงที่ส่งเข้า) · ดับเบิลคลิกเพื่อค่าเริ่มต้น",
+        _ => "ลากเพื่อปรับ · ดับเบิลคลิกเพื่อค่าเริ่มต้น",
+    });
 
     p.text(pos2(rect.center().x, rect.bottom() - 14.0), Align2::CENTER_CENTER, label, FontId::monospace(11.0), if muted { DIM } else { TEXT });
+}
+
+/// Label, tooltip, value, default, min, max and how to show the value.
+type FxRow<'a> = (&'a str, &'a str, &'a mut f32, f32, f32, f32, fn(f32) -> String);
+
+/// Reverb room / damping / width, or chorus rate / depth / delay, as bars
+/// where the channel strips have pan and mute / solo.
+fn fx_controls(app: &mut KaraokeApp, ui: &mut egui::Ui, p: &Painter, rect: Rect, id: egui::Id, reverb: bool) {
+    let mut fx = app.synth.mixer().fx;
+    let defaults = FxParams::default();
+    let color = if reverb { REVERB } else { CHORUS };
+    let rows: [FxRow; 3] = if reverb {
+        [
+            ("ROOM", "ขนาดห้อง", &mut fx.reverb_room, defaults.reverb_room, 0.0, 1.0, |v| format!("{:.0}", v * 100.0)),
+            ("DAMP", "ความอับของเสียงสะท้อน (ตัดเสียงแหลม)", &mut fx.reverb_damp, defaults.reverb_damp, 0.0, 1.0, |v| format!("{:.0}", v * 100.0)),
+            ("WIDE", "ความกว้างสเตอริโอ", &mut fx.reverb_width, defaults.reverb_width, 0.0, 1.0, |v| format!("{:.0}", v * 100.0)),
+        ]
+    } else {
+        [
+            ("RATE", "ความเร็วการสั่น (Hz)", &mut fx.chorus_rate, defaults.chorus_rate, 0.05, 8.0, |v| format!("{v:.1}")),
+            ("DPTH", "ความลึก (ms)", &mut fx.chorus_depth, defaults.chorus_depth, 0.0, 15.0, |v| format!("{v:.1}")),
+            ("DLY", "ดีเลย์ (ms)", &mut fx.chorus_delay, defaults.chorus_delay, 2.0, 30.0, |v| format!("{v:.0}")),
+        ]
+    };
+    for (k, (label, tip, value, default, min, max, text)) in rows.into_iter().enumerate() {
+        let r = row_rect(rect, 46.0 + k as f32 * 19.0);
+        let norm = (*value - min) / (max - min);
+        let resp = bar(ui, p, r, id.with(label), label, norm, None, color, &text(*value));
+        if resp.double_clicked() {
+            *value = default;
+        } else if let Some(v) = drag_value(&resp, r) {
+            *value = min + v * (max - min);
+        }
+        resp.on_hover_text(format!("{tip}: {} · ดับเบิลคลิกเพื่อค่าเริ่มต้น", text(*value)));
+    }
+    if fx != app.synth.mixer().fx {
+        app.synth.set_fx(fx);
+    }
+}
+
+fn row_rect(strip: Rect, y: f32) -> Rect {
+    Rect::from_min_size(pos2(strip.left() + 5.0, strip.top() + y), vec2(strip.width() - 10.0, 16.0))
+}
+
+/// A small horizontal bar: label on the left, value on the right, filled
+/// to `value` (0..1). `marker` shows where the song had it.
+#[allow(clippy::too_many_arguments)]
+fn bar(ui: &mut egui::Ui, p: &Painter, r: Rect, id: egui::Id, label: &str, value: f32, marker: Option<f32>, color: Color32, text: &str) -> egui::Response {
+    let resp = ui.interact(r, id, Sense::click_and_drag());
+    let hot = resp.hovered() || resp.dragged();
+    p.rect_filled(r, CornerRadius::same(4), INK);
+    let fill = Rect::from_min_max(r.min, pos2(r.left() + r.width() * value.clamp(0.0, 1.0), r.bottom()));
+    p.rect_filled(fill, CornerRadius::same(4), color.gamma_multiply(if hot { 0.55 } else { 0.38 }));
+    if let Some(m) = marker {
+        let x = r.left() + r.width() * m.clamp(0.0, 1.0);
+        p.vline(x, (r.top() + 2.0)..=(r.bottom() - 2.0), Stroke::new(1.0, TEXT.gamma_multiply(0.7)));
+    }
+    if hot {
+        p.rect_stroke(r, CornerRadius::same(4), Stroke::new(1.0, color), egui::StrokeKind::Inside);
+    }
+    // Full label when it fits beside the value, else its first letter.
+    let font = FontId::monospace(8.5);
+    let room = r.width() - 9.0 - p.layout_no_wrap(text.to_string(), font.clone(), TEXT).size().x;
+    let label = if p.layout_no_wrap(label.to_string(), font.clone(), TEXT).size().x <= room { label } else { &label[..1] };
+    p.text(pos2(r.left() + 3.0, r.center().y), Align2::LEFT_CENTER, label, font.clone(), if marker.is_some() { SUNG } else { DIM });
+    p.text(pos2(r.right() - 3.0, r.center().y), Align2::RIGHT_CENTER, text, font, TEXT);
+    resp
+}
+
+/// The 0..1 position a drag on a bar asks for.
+fn drag_value(resp: &egui::Response, r: Rect) -> Option<f32> {
+    let pos = resp.interact_pointer_pos().filter(|_| resp.dragged() || resp.clicked())?;
+    Some(((pos.x - r.left()) / r.width()).clamp(0.0, 1.0))
 }
 
 fn toggle(ui: &mut egui::Ui, p: &Painter, r: Rect, id: egui::Id, text: &str, on: bool, color: Color32) -> egui::Response {

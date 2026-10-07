@@ -162,7 +162,7 @@ pub struct ChannelMeter {
 impl Default for ChannelMeter {
     fn default() -> Self {
         let m = Self { a: AtomicU64::new(0), b: AtomicU64::new(0) };
-        m.store(&ChannelInfo { volume: 127, pan: 64, expression: 127, ..ChannelInfo::default() });
+        m.store(&ChannelInfo { volume: 127, pan: 64, expression: 127, reverb: 40, ..ChannelInfo::default() });
         m
     }
 }
@@ -182,6 +182,9 @@ pub struct ChannelInfo {
     pub volume: u8,
     pub pan: u8,
     pub expression: u8,
+    /// Reverb send (CC 91) and chorus send (CC 93), 0..127.
+    pub reverb: u8,
+    pub chorus: u8,
     pub bend: i16,
     pub sustain: bool,
     /// Rhythm (drum) part.
@@ -206,7 +209,9 @@ impl ChannelMeter {
             | ((c.explicit as u64) << 18)
             | ((c.drum as u64) << 19)
             | ((c.locked as u64) << 20)
-            | ((c.voices as u64) << 24);
+            | ((c.voices as u64) << 24)
+            | ((c.reverb as u64) << 32)
+            | ((c.chorus as u64) << 40);
         self.a.store(a, Ordering::Relaxed);
         self.b.store(b, Ordering::Relaxed);
     }
@@ -230,6 +235,8 @@ impl ChannelMeter {
             drum: b & (1 << 19) != 0,
             locked: b & (1 << 20) != 0,
             voices: (b >> 24) as u8,
+            reverb: (b >> 32) as u8,
+            chorus: (b >> 40) as u8,
         }
     }
 }
@@ -690,8 +697,8 @@ impl Engine {
                 let pan = (p.pan + sp.pan).clamp(-1.0, 1.0);
                 let (tl, tr) = (g * (1.0 - pan).min(1.0), g * (1.0 + pan).min(1.0));
                 let (ml, mr) = if audible { (tl, tr) } else { (0.0, 0.0) };
-                let rev = p.reverb * slot.ch[ch].reverb;
-                let cho = p.chorus * slot.ch[ch].chorus;
+                let rev = (p.reverb * slot.ch[ch].reverb + p.reverb_add).max(0.0);
+                let cho = (p.chorus * slot.ch[ch].chorus + p.chorus_add).max(0.0);
                 let bus = if (p.output as usize) < out_pairs { p.output as usize } else { 0 };
                 let [mut pl, mut pr] = st.peak;
                 for i in 0..n {

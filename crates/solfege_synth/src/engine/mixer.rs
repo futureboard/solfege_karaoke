@@ -38,6 +38,10 @@ pub struct StripParams {
     /// Scales the channel's CC91 (reverb) / CC93 (chorus) send level.
     pub reverb: f32,
     pub chorus: f32,
+    /// Added to the (scaled) send level, so a channel the song leaves dry
+    /// can still be sent; -1..1 of the full send.
+    pub reverb_add: f32,
+    pub chorus_add: f32,
     pub output: u8,
 }
 
@@ -56,6 +60,8 @@ impl Default for StripParams {
             lpf_hz: 20_000.0,
             reverb: 1.0,
             chorus: 1.0,
+            reverb_add: 0.0,
+            chorus_add: 0.0,
             output: 0,
         }
     }
@@ -73,6 +79,8 @@ impl StripParams {
         self.lpf_hz = self.lpf_hz.clamp(500.0, 20_000.0);
         self.reverb = self.reverb.clamp(0.0, 2.0);
         self.chorus = self.chorus.clamp(0.0, 2.0);
+        self.reverb_add = self.reverb_add.clamp(-1.0, 1.0);
+        self.chorus_add = self.chorus_add.clamp(-1.0, 1.0);
         self.output = self.output.min(MAX_BUSES as u8 - 1);
         self
     }
