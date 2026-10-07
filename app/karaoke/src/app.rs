@@ -11,7 +11,7 @@ use solfege_synth::engine::PlayState;
 use crate::library::{self, Library};
 use crate::synth::{Synth, SynthEvent};
 use crate::timeline::Timeline;
-use crate::ui::files::FilePicker;
+use crate::ui::overlay::{Overlay, Page};
 
 const SETTINGS_KEY: &str = "settings";
 
@@ -59,27 +59,20 @@ pub struct Toast {
     pub at: f64,
 }
 
-pub enum Picking {
-    Library,
-    SoundFont,
-}
-
 pub struct KaraokeApp {
     pub settings: Settings,
     pub synth: Synth,
     pub library: Library,
     pub queue: VecDeque<SongHeader>,
     pub now: Option<NowPlaying>,
-    pub selected: Option<usize>,
     pub toasts: Vec<Toast>,
-    /// Hide the side panels and show only the lyrics.
+    /// Full screen with the bottom bar hidden: only the lyrics.
     pub stage_only: bool,
-    pub show_settings: bool,
-    pub picker: Option<(Picking, FilePicker)>,
+    /// Song search, queue, commands, tracks and settings all live here.
+    pub overlay: Option<Overlay>,
     pub devices: Vec<String>,
     /// Seek bar position while it is being dragged.
     pub scrub: Option<f64>,
-    pub focus_search: bool,
     pending_song: Option<String>,
     clock: f64,
 }
@@ -103,14 +96,11 @@ impl KaraokeApp {
             library: Library::new(),
             queue: VecDeque::new(),
             now: None,
-            selected: None,
             toasts: Vec::new(),
             stage_only: false,
-            show_settings: false,
-            picker: None,
+            overlay: None,
             devices: Vec::new(),
             scrub: None,
-            focus_search: true,
             pending_song: launch.song,
             clock: 0.0,
         };
@@ -121,11 +111,11 @@ impl KaraokeApp {
         }
         match app.settings.soundfont.clone().filter(|p| p.is_file()).or_else(library::find_soundfont) {
             Some(sf) => app.synth.load_soundfont(sf),
-            None => app.toast_error("ยังไม่มี SoundFont (.sf2) — เลือกได้ที่ ตั้งค่า".into()),
+            None => app.toast_error("ยังไม่มี SoundFont (.sf2) — เลือกได้ที่ ตั้งค่า (Ctrl+,)".into()),
         }
         match app.settings.library.clone().filter(|p| p.is_dir()).or_else(library::find_default_root) {
             Some(root) => app.library.open(root),
-            None => app.toast_error("ยังไม่ได้เลือกคลังเพลง NCN — เลือกได้ที่ ตั้งค่า".into()),
+            None => app.toast_error("ยังไม่ได้เลือกคลังเพลง NCN — เลือกได้ที่ ตั้งค่า (Ctrl+,)".into()),
         }
         app
     }
@@ -198,7 +188,6 @@ impl KaraokeApp {
 
     pub fn open_library(&mut self, root: PathBuf) {
         self.settings.library = Some(root.clone());
-        self.selected = None;
         self.library.open(root);
     }
 
@@ -260,12 +249,33 @@ impl KaraokeApp {
         }
     }
 
+    pub fn open(&mut self, page: Page) {
+        self.overlay = Some(Overlay::new(page));
+    }
+
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() {
+        // The overlay handles its own keys.
+        if self.overlay.is_some() || ctx.egui_wants_keyboard_input() {
             return;
         }
-        use egui::Key;
-        let pressed = |k: Key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+        use egui::{Key, Modifiers};
+        let command = |k: Key| ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, k));
+        if command(Key::K) {
+            return self.open(Page::Commands);
+        }
+        if command(Key::Comma) {
+            return self.open(Page::Settings);
+        }
+        let pressed = |k: Key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, k));
+        if pressed(Key::Slash) {
+            return self.open(Page::Songs);
+        }
+        if pressed(Key::Q) {
+            return self.open(Page::Queue);
+        }
+        if pressed(Key::T) {
+            return self.open(Page::Tracks);
+        }
         if pressed(Key::Space) {
             self.synth.toggle();
         }
@@ -295,9 +305,6 @@ impl KaraokeApp {
         }
         if self.stage_only && pressed(Key::Escape) {
             self.set_stage_only(ctx, false);
-        }
-        if pressed(Key::Slash) {
-            self.focus_search = true;
         }
     }
 

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{self, Align2, Color32, FontId, Galley, Mesh, Painter, Pos2, Rect, Sense, Stroke, pos2, vec2};
+use eframe::egui::{self, Align2, Color32, FontId, Galley, Painter, Pos2, Rect, Sense, Stroke, pos2, vec2};
 use solfege_synth::engine::PlayState;
 
 use crate::app::{KaraokeApp, NowPlaying};
@@ -12,7 +12,7 @@ use crate::icons;
 use crate::music::transpose_key;
 use crate::style::{self, ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family};
 use crate::timeline::{COUNT_IN_BEATS, Cue, Line};
-use crate::ui::clock;
+use crate::ui::{clock, overlay};
 
 /// Once the current line is done, move the stage to the next line this
 /// long before its count-in would begin.
@@ -27,7 +27,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         app.set_stage_only(&ctx, !app.stage_only);
     }
     let painter = ui.painter_at(rect);
-    backdrop(app, &painter, rect);
+    backdrop(&painter, rect);
 
     let t = app.lyric_time();
     let scale = app.settings.lyric_scale;
@@ -37,8 +37,9 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         idle(&painter, rect, app.synth.soundfont_name().is_none());
         return;
     };
-    let duration = app.stage_only.then(|| app.synth.duration());
-    header(&painter, rect, now, key, app.synth.speed(), t, duration);
+    // With the bar hidden the stage carries key, tempo and time itself.
+    let readouts = app.stage_only.then(|| app.synth.duration());
+    header(&painter, rect, now, key, app.synth.speed(), t, readouts);
 
     let base = (rect.height() * 0.085).clamp(26.0, 110.0) * scale;
     let max_w = rect.width() - 64.0;
@@ -202,36 +203,8 @@ fn outline(painter: &Painter, galley: &Arc<Galley>, pos: Pos2, size: f32, color:
     }
 }
 
-fn backdrop(app: &KaraokeApp, painter: &Painter, rect: Rect) {
-    let top = Color32::from_rgb(0x1a, 0x1c, 0x3a);
-    let bottom = Color32::from_rgb(0x08, 0x0a, 0x14);
-    let mut mesh = Mesh::default();
-    mesh.colored_vertex(rect.left_top(), top);
-    mesh.colored_vertex(rect.right_top(), style::mix(top, Color32::from_rgb(0x2a, 0x15, 0x30), 0.6));
-    mesh.colored_vertex(rect.right_bottom(), bottom);
-    mesh.colored_vertex(rect.left_bottom(), bottom);
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(0, 2, 3);
-    painter.add(mesh);
-
-    // Sixteen soft columns that breathe with the MIDI parts.
-    if app.now.is_some() {
-        let n = 16;
-        let gap = 6.0;
-        let w = (rect.width() - gap * (n as f32 + 1.0)) / n as f32;
-        let max_h = rect.height() * 0.28;
-        for ch in 0..n {
-            let level = app.synth.activity(ch).clamp(0.0, 1.0);
-            if level < 0.01 {
-                continue;
-            }
-            let x = rect.left() + gap + ch as f32 * (w + gap);
-            let h = max_h * level;
-            let col = Rect::from_min_max(pos2(x, rect.bottom() - h), pos2(x + w, rect.bottom()));
-            let c = style::mix(ACCENT, SUNG_HOT, ch as f32 / (n - 1) as f32);
-            painter.rect_filled(col, egui::CornerRadius::same(6), c.gamma_multiply(0.10 + 0.08 * level));
-        }
-    }
+fn backdrop(painter: &Painter, rect: Rect) {
+    painter.rect_filled(rect, 0.0, INK);
 }
 
 fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64, t: f64, duration: Option<f64>) {
@@ -243,6 +216,7 @@ fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64,
         format!("{}  —  {}", now.header.title, now.header.artist)
     };
     painter.text(rect.left_top() + vec2(pad, pad), Align2::LEFT_TOP, title, font.clone(), DIM);
+    let Some(d) = duration else { return };
 
     // Right to left: time (full screen only), tempo with a beat light, key.
     let mut x = rect.right() - pad;
@@ -252,9 +226,7 @@ fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64,
         x = r.left() - 22.0;
         r
     };
-    if let Some(d) = duration {
-        item(format!("{}  {} / {}", icons::TIMER, clock(t), clock(d)), DIM);
-    }
+    item(format!("{}  {} / {}", icons::TIMER, clock(t), clock(d)), DIM);
     let bpm = now.timeline.tempo.bpm(t) * speed;
     let r = item(format!("{}  {bpm:.0} BPM", icons::METRONOME), ACCENT);
     // Flashes on every quarter note and fades through the beat.
@@ -293,9 +265,28 @@ fn finished(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, next: Op
     painter.text(c, Align2::CENTER_TOP, &now.song.title, FontId::new(base * 0.45, lyrics_family()), DIM);
     let hint = match next {
         Some(t) => format!("ถัดไป: {t}"),
-        None => "เลือกเพลงต่อไปจากรายการ หรือกดเล่นเพื่อร้องซ้ำ".to_string(),
+        None => "กด / เพื่อเลือกเพลงต่อไป หรือ Space เพื่อร้องซ้ำ".to_string(),
     };
     painter.text(c + vec2(0.0, base * 1.0), Align2::CENTER_TOP, hint, FontId::proportional(16.0), TEXT);
+}
+
+/// Centred row of "[keys] what" pairs.
+fn key_hints(painter: &Painter, center: Pos2, hints: &[(&[&str], &str)]) {
+    let font = FontId::proportional(15.0);
+    let gap = 28.0;
+    let width_of = |keys: &[&str], what: &str| {
+        keys.iter().map(|k| overlay::keycap_width(painter, k) + 4.0).sum::<f32>()
+            + 6.0
+            + painter.layout_no_wrap(what.to_string(), font.clone(), TEXT).size().x
+    };
+    let total: f32 = hints.iter().map(|(k, w)| width_of(k, w)).sum::<f32>() + gap * (hints.len() as f32 - 1.0);
+    let mut x = center.x - total / 2.0;
+    for (keys, what) in hints {
+        for k in *keys {
+            x = overlay::keycap(painter, pos2(x + overlay::keycap_width(painter, k), center.y), k).right() + 4.0;
+        }
+        x = painter.text(pos2(x + 6.0, center.y), Align2::LEFT_CENTER, *what, font.clone(), TEXT).right() + gap;
+    }
 }
 
 fn idle(painter: &Painter, rect: Rect, no_font: bool) {
@@ -303,18 +294,12 @@ fn idle(painter: &Painter, rect: Rect, no_font: bool) {
     let size = (rect.height() * 0.1).clamp(28.0, 84.0);
     painter.text(c - vec2(0.0, size * 1.45), Align2::CENTER_BOTTOM, icons::MIC, FontId::proportional(size * 0.9), ACCENT);
     painter.text(c - vec2(0.0, size * 0.2), Align2::CENTER_BOTTOM, "พร้อมร้อง", FontId::new(size, lyrics_family()), SUNG);
-    painter.text(
-        c + vec2(0.0, size * 0.1),
-        Align2::CENTER_TOP,
-        "เลือกเพลงจากรายการ ดับเบิลคลิกเพื่อร้องทันที หรือ + เพื่อจองคิว",
-        FontId::proportional(16.0),
-        TEXT,
-    );
+    key_hints(painter, c + vec2(0.0, size * 0.1 + 12.0), &[(&["/"], "ค้นหาเพลง"), (&["Ctrl", "K"], "คำสั่งทั้งหมด")]);
     if no_font {
         painter.text(
             c + vec2(0.0, size * 0.1 + 30.0),
             Align2::CENTER_TOP,
-            "ยังไม่มี SoundFont — เนื้อร้องจะเลื่อนตามเพลงแต่ไม่มีเสียงดนตรี (ตั้งค่า)",
+            "ยังไม่มี SoundFont — เนื้อร้องจะเลื่อนตามเพลงแต่ไม่มีเสียงดนตรี (ตั้งค่า: Ctrl ,)",
             FontId::proportional(13.0),
             DIM,
         );

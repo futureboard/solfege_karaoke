@@ -12,18 +12,21 @@ pub fn lyrics_family() -> FontFamily {
     FontFamily::Name(LYRICS.into())
 }
 
-// A night-blue room lit by a warm "sung" colour and a cool accent.
-pub const INK: Color32 = Color32::from_rgb(0x0d, 0x10, 0x1c);
-pub const PANEL: Color32 = Color32::from_rgb(0x13, 0x17, 0x27);
-pub const RAISED: Color32 = Color32::from_rgb(0x1b, 0x20, 0x35);
-pub const LINE: Color32 = Color32::from_rgb(0x2a, 0x30, 0x4a);
-pub const TEXT: Color32 = Color32::from_rgb(0xe8, 0xea, 0xf2);
-pub const DIM: Color32 = Color32::from_rgb(0x8a, 0x90, 0xab);
+// Neutral greys so the lyric colours carry the stage.
+/// Stage and bottom bar.
+pub const INK: Color32 = Color32::from_rgb(0x15, 0x15, 0x15);
+/// Overlay panel.
+pub const PANEL: Color32 = Color32::from_rgb(0x1c, 0x1c, 0x1c);
+/// Hovered / selected rows.
+pub const RAISED: Color32 = Color32::from_rgb(0x27, 0x27, 0x27);
+pub const LINE: Color32 = Color32::from_rgb(0x30, 0x30, 0x30);
+pub const TEXT: Color32 = Color32::from_rgb(0xec, 0xec, 0xec);
+pub const DIM: Color32 = Color32::from_rgb(0x8c, 0x8c, 0x8c);
 /// Lyrics already sung.
 pub const SUNG: Color32 = Color32::from_rgb(0xff, 0xb0, 0x3b);
 pub const SUNG_HOT: Color32 = Color32::from_rgb(0xff, 0x6a, 0x3d);
 /// Lyrics still to sing.
-pub const UNSUNG: Color32 = Color32::from_rgb(0xf4, 0xf5, 0xfa);
+pub const UNSUNG: Color32 = Color32::from_rgb(0xf4, 0xf4, 0xf4);
 pub const ACCENT: Color32 = Color32::from_rgb(0x4f, 0xd1, 0xc5);
 pub const DANGER: Color32 = Color32::from_rgb(0xff, 0x5d, 0x73);
 
@@ -71,9 +74,9 @@ pub fn install(ctx: &egui::Context) {
         for (state, fill) in [
             (&mut w.noninteractive, PANEL),
             (&mut w.inactive, RAISED),
-            (&mut w.hovered, Color32::from_rgb(0x26, 0x2d, 0x4a)),
-            (&mut w.active, Color32::from_rgb(0x30, 0x38, 0x5c)),
-            (&mut w.open, Color32::from_rgb(0x26, 0x2d, 0x4a)),
+            (&mut w.hovered, Color32::from_rgb(0x2e, 0x2e, 0x2e)),
+            (&mut w.active, Color32::from_rgb(0x38, 0x38, 0x38)),
+            (&mut w.open, Color32::from_rgb(0x2e, 0x2e, 0x2e)),
         ] {
             state.corner_radius = CornerRadius::same(8);
             if fill != PANEL {
