@@ -141,25 +141,47 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
         _ => None,
     };
 
-    // Pan (strips only).
-    let pan_r = Rect::from_min_size(pos2(rect.left() + 9.0, rect.top() + 48.0), vec2(rect.width() - 18.0, 14.0));
+    // Pan (strips only): the song's own pan (MIDI CC 10) plus the user's
+    // offset. The hollow mark is where the song puts it, the knob where it
+    // ends up; dragging moves the knob, double-click returns to the song.
+    let pan_r = Rect::from_min_size(pos2(rect.left() + 7.0, rect.top() + 43.0), vec2(rect.width() - 14.0, 24.0));
     if let Some(s) = strip {
         let mut params = app.synth.strip(s);
+        let midi = match s {
+            StripId::Channel(ch) => app.synth.midi_pan(ch),
+            StripId::Kit(_) => app.synth.midi_pan(DRUM_CH),
+        };
         let resp = ui.interact(pan_r, id.with("pan"), Sense::click_and_drag());
         if resp.double_clicked() {
             params.pan = 0.0;
         } else if let Some(pos) = resp.interact_pointer_pos()
             && resp.dragged()
         {
-            params.pan = ((pos.x - pan_r.left()) / pan_r.width() * 2.0 - 1.0).clamp(-1.0, 1.0);
+            let want = ((pos.x - pan_r.left()) / pan_r.width() * 2.0 - 1.0).clamp(-1.0, 1.0);
+            params.pan = (want - midi).clamp(-1.0, 1.0);
         }
-        let track = Rect::from_center_size(pan_r.center(), vec2(pan_r.width(), 3.0));
+        let heard = (midi + params.pan).clamp(-1.0, 1.0);
+        let track = Rect::from_center_size(pos2(pan_r.center().x, pan_r.bottom() - 4.0), vec2(pan_r.width(), 3.0));
         p.rect_filled(track, 1.5, LINE);
+        let x_of = |v: f32| pan_r.center().x + v * pan_r.width() / 2.0;
         let cx = pan_r.center().x;
-        let px = cx + params.pan * pan_r.width() / 2.0;
-        p.rect_filled(Rect::from_min_max(pos2(cx.min(px), track.top()), pos2(cx.max(px), track.bottom())), 1.5, ACCENT);
-        p.circle_filled(pos2(px, track.center().y), if resp.hovered() || resp.dragged() { 5.0 } else { 4.0 }, TEXT);
-        resp.on_hover_text(pan_text(params.pan));
+        p.vline(cx, (track.top() - 2.0)..=(track.bottom() + 2.0), Stroke::new(1.0, DIM.gamma_multiply(0.6)));
+        let hx = x_of(heard);
+        p.rect_filled(Rect::from_min_max(pos2(cx.min(hx), track.top()), pos2(cx.max(hx), track.bottom())), 1.5, ACCENT);
+        if params.pan.abs() > 0.005 {
+            p.circle_stroke(pos2(x_of(midi), track.center().y), 3.5, Stroke::new(1.0, DIM));
+        }
+        let hot = resp.hovered() || resp.dragged();
+        let knob = if params.pan.abs() > 0.005 { SUNG } else { TEXT };
+        let knob_r = Rect::from_center_size(pos2(hx, track.center().y), vec2(if hot { 4.0 } else { 3.0 }, 10.0));
+        p.rect_filled(knob_r, 1.5, knob);
+        p.text(pos2(pan_r.center().x, pan_r.top()), Align2::CENTER_TOP, pan_text(heard), FontId::monospace(9.0), if params.pan.abs() > 0.005 { SUNG } else { DIM });
+        let tip = if params.pan.abs() > 0.005 {
+            format!("เพลง {} · ปรับ {:+.0} · ได้ {}\nดับเบิลคลิกเพื่อกลับไปตามเพลง", pan_text(midi), params.pan * 100.0, pan_text(heard))
+        } else {
+            format!("แพนจากเพลง (MIDI CC10): {}", pan_text(midi))
+        };
+        resp.on_hover_text(tip);
         if params != app.synth.strip(s) {
             app.synth.set_strip(s, params);
         }
@@ -272,12 +294,13 @@ fn db_text(db: f32) -> String {
     if db <= MIN_DB { "-∞".into() } else { format!("{db:+.1}") }
 }
 
+/// `L32`, `C`, `R20` (MIDI-style, out of 64).
 fn pan_text(pan: f32) -> String {
-    let v = (pan * 100.0).round() as i32;
+    let v = (pan * 64.0).round() as i32;
     match v {
-        0 => "กลาง".into(),
-        v if v < 0 => format!("ซ้าย {}", -v),
-        v => format!("ขวา {v}"),
+        0 => "C".into(),
+        v if v < 0 => format!("L{}", -v),
+        v => format!("R{v}"),
     }
 }
 
@@ -295,6 +318,8 @@ mod tests {
         assert!(db_to_norm(0.0) > 0.6, "0 dB sits high on the fader");
         assert_eq!(norm_to_db(0.0), MIN_DB);
         assert_eq!(db_text(-60.0), "-∞");
-        assert_eq!(pan_text(-0.5), "ซ้าย 50");
+        assert_eq!(pan_text(-0.5), "L32");
+        assert_eq!(pan_text(0.0), "C");
+        assert_eq!(pan_text(1.0), "R64");
     }
 }

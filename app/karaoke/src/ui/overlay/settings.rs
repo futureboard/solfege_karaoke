@@ -1,5 +1,5 @@
-//! Song folders, audio device and lyric display (SoundFonts live on the
-//! Sounds page).
+//! Song folders, audio device and lyric display (SoundFonts live in the
+//! sound settings window, `ui::sound`).
 
 use std::path::PathBuf;
 

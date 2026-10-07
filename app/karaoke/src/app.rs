@@ -13,6 +13,7 @@ use crate::library::{self, Library};
 use crate::synth::{InstrumentSound, Synth, SynthEvent};
 use crate::timeline::Timeline;
 use crate::ui::overlay::{Overlay, Page};
+use crate::ui::sound::SoundPanel;
 
 const SETTINGS_KEY: &str = "settings";
 
@@ -110,6 +111,8 @@ pub struct KaraokeApp {
     pub overlay: Option<Overlay>,
     /// The mixer panel, docked above the bottom bar.
     pub mixer_open: bool,
+    /// The sound settings window (SoundFonts, channels, instruments, drums).
+    pub sound: Option<SoundPanel>,
     pub devices: Vec<String>,
     /// Seek bar position while it is being dragged.
     pub scrub: Option<f64>,
@@ -140,6 +143,7 @@ impl KaraokeApp {
             stage_only: false,
             overlay: None,
             mixer_open: false,
+            sound: None,
             devices: Vec::new(),
             scrub: None,
             pending_song: launch.song,
@@ -348,12 +352,19 @@ impl KaraokeApp {
     }
 
     pub fn open(&mut self, page: Page) {
+        self.sound = None;
         self.overlay = Some(Overlay::new(page));
+    }
+
+    /// Open the sound settings window (closes the overlay).
+    pub fn open_sound(&mut self) {
+        self.overlay = None;
+        self.sound = Some(SoundPanel::new());
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
         // The overlay handles its own keys.
-        if self.overlay.is_some() || ctx.egui_wants_keyboard_input() {
+        if self.overlay.is_some() || self.sound.is_some() || ctx.egui_wants_keyboard_input() {
             return;
         }
         use egui::{Key, Modifiers};
@@ -376,7 +387,7 @@ impl KaraokeApp {
             return;
         }
         if pressed(Key::S) {
-            return self.open(Page::Sounds);
+            return self.open_sound();
         }
         if pressed(Key::Space) {
             self.synth.toggle();

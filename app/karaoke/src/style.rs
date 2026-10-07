@@ -91,6 +91,21 @@ pub fn install(ctx: &egui::Context) {
     });
 }
 
+/// Colour that marks a SoundFont of the rack wherever it appears.
+pub fn font_color(index: usize) -> Color32 {
+    const COLORS: [Color32; 8] = [
+        ACCENT,
+        SUNG,
+        Color32::from_rgb(0xa7, 0x8b, 0xfa),
+        Color32::from_rgb(0xf4, 0x72, 0xb6),
+        Color32::from_rgb(0x60, 0xa5, 0xfa),
+        Color32::from_rgb(0x4a, 0xde, 0x80),
+        Color32::from_rgb(0xfb, 0x92, 0x3c),
+        Color32::from_rgb(0xfa, 0xcc, 0x15),
+    ];
+    COLORS[index % COLORS.len()]
+}
+
 /// Linear blend of two colours.
 pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);

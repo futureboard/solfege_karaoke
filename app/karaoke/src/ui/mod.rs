@@ -2,8 +2,10 @@
 //! under it, and everything else opens as an overlay on top.
 
 mod bar;
+pub mod browse;
 mod mixer;
 pub mod overlay;
+pub mod sound;
 mod stage;
 
 use eframe::egui::{self, Align2, CornerRadius, FontId, Frame, Margin, Panel, RichText, Stroke};
@@ -31,12 +33,13 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     }
     egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui));
     overlay::show(app, &ctx);
+    sound::show(app, &ctx);
     toasts(app, &ctx);
 }
 
 fn toasts(app: &KaraokeApp, ctx: &egui::Context) {
     // The overlay has the user's attention; notes wait until it closes.
-    if app.toasts.is_empty() || app.overlay.is_some() {
+    if app.toasts.is_empty() || app.overlay.is_some() || app.sound.is_some() {
         return;
     }
     let now = ctx.input(|i| i.time);

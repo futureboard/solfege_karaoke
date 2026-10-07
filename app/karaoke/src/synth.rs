@@ -729,6 +729,13 @@ impl Synth {
         font.presets.get(preset).map(|p| p.name.as_str())
     }
 
+    /// The song's own pan for a channel (MIDI CC 10), -1 (left) .. 1 (right).
+    pub fn midi_pan(&self, ch: usize) -> f32 {
+        let Some(slot) = self.slot_of(ch) else { return 0.0 };
+        let raw = self.shared.slots[slot].channels[ch].load().pan as f32;
+        ((raw - 64.0) / 63.0).clamp(-1.0, 1.0)
+    }
+
     /// Font a channel is sounding from right now (an instrument override
     /// can differ from the channel's routing).
     pub fn sounding_font(&self, ch: usize) -> Option<usize> {
@@ -1092,5 +1099,33 @@ mod tests {
         let kick = s.engine_params(StripId::Kit(0));
         assert!(kick.mute && (kick.gain_db + 6.0).abs() < 1e-4);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn midi_pan_is_read_from_the_song() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608002.mid");
+        let Some(sf2) = crate::library::find_soundfont().filter(|_| midi.is_file()) else {
+            eprintln!("skipped: needs a .sf2 and the shared/NCN sample library");
+            return;
+        };
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.add_font(sf2).unwrap();
+        let t0 = Instant::now();
+        while s.loading_soundfont() && t0.elapsed() < Duration::from_secs(60) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608002").unwrap();
+        s.play();
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(400) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // This song pans channel 4 right (CC10 = 85) and channel 6 left (40).
+        assert!((s.midi_pan(3) - 21.0 / 63.0).abs() < 0.02, "channel 4: {}", s.midi_pan(3));
+        assert!((s.midi_pan(5) + 24.0 / 63.0).abs() < 0.02, "channel 6: {}", s.midi_pan(5));
+        assert_eq!(s.midi_pan(1), 0.0, "channel 2 stays centred");
     }
 }
