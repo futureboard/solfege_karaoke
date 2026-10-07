@@ -3,6 +3,7 @@
 use eframe::egui::{self, Align2, CornerRadius, FontId, RichText, Sense, Stroke};
 use solfege_synth::engine::PlayState;
 
+use crate::icons;
 use crate::app::KaraokeApp;
 use crate::music::{signed, transpose_key};
 use crate::style::{self, ACCENT, DIM, INK, LINE, RAISED, SUNG, SUNG_HOT, TEXT};
@@ -12,7 +13,7 @@ use crate::ui::clock;
 pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         let playing = app.synth.state() == PlayState::Playing;
-        if round_button(ui, 44.0, if playing { "⏸" } else { "▶" }, true).on_hover_text("เล่น / พัก (Space)").clicked() {
+        if round_button(ui, 44.0, if playing { icons::PAUSE } else { icons::PLAY }, true).on_hover_text("เล่น / พัก (Space)").clicked() {
             if app.now.as_ref().is_some_and(|n| n.finished) {
                 if let Some(n) = &mut app.now {
                     n.finished = false;
@@ -22,10 +23,10 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                 app.synth.toggle();
             }
         }
-        if round_button(ui, 34.0, "⏹", false).on_hover_text("หยุด").clicked() {
+        if round_button(ui, 34.0, icons::STOP, false).on_hover_text("หยุด").clicked() {
             app.synth.stop();
         }
-        if round_button(ui, 34.0, "⏭", false).on_hover_text("เพลงถัดไปในคิว (N)").clicked() {
+        if round_button(ui, 34.0, icons::NEXT, false).on_hover_text("เพลงถัดไปในคิว (N)").clicked() {
             app.play_next();
         }
         ui.add_space(10.0);
@@ -114,11 +115,11 @@ fn stepper(ui: &mut egui::Ui, label: &str, value: String, hint: &str) -> i32 {
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             // Right-to-left parent: add in reverse visual order.
-            if ui.small_button("+").clicked() {
+            if ui.small_button(icons::PLUS).clicked() {
                 d = 1;
             }
-            ui.add_sized([62.0, 20.0], egui::Label::new(RichText::new(value).strong().color(TEXT)));
-            if ui.small_button("−").clicked() {
+            ui.add_sized([74.0, 20.0], egui::Label::new(RichText::new(value).strong().color(TEXT)));
+            if ui.small_button(icons::MINUS).clicked() {
                 d = -1;
             }
             ui.label(RichText::new(label).size(12.0).color(DIM));
@@ -135,7 +136,7 @@ fn key(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         Some(name) => name,
         None => signed(k),
     };
-    let d = stepper(ui, "คีย์", value, "เปลี่ยนคีย์ทีละครึ่งเสียง ( [ / ] ) — กลองไม่เปลี่ยน");
+    let d = stepper(ui, &format!("{}  คีย์", icons::KEY), value, "เปลี่ยนคีย์ทีละครึ่งเสียง ( [ / ] ) — กลองไม่เปลี่ยน");
     if d != 0 {
         app.synth.set_key((k + d).clamp(-KEY_RANGE, KEY_RANGE));
     }
@@ -143,7 +144,13 @@ fn key(app: &mut KaraokeApp, ui: &mut egui::Ui) {
 
 fn tempo(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let s = app.synth.speed();
-    let d = stepper(ui, "ความเร็ว", format!("{:.0}%", s * 100.0), "ช้าลง / เร็วขึ้น ( , / . )");
+    // The tempo you hear right now; the label carries the speed setting.
+    let value = match app.bpm() {
+        Some(bpm) => format!("{bpm:.0} BPM"),
+        None => "– BPM".to_string(),
+    };
+    let label = format!("{}  {:.0}%", icons::GAUGE, s * 100.0);
+    let d = stepper(ui, &label, value, "ช้าลง / เร็วขึ้นทีละ 5% ( , / . )");
     if d != 0 {
         app.synth.set_speed(s + d as f64 * 0.05);
     }
@@ -155,13 +162,13 @@ fn volume(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     if ui.add(egui::Slider::new(&mut v, 0.0..=1.0).show_value(false)).on_hover_text("ระดับเสียงดนตรี").changed() {
         app.synth.set_volume(v);
     }
-    ui.label(RichText::new(if v <= 0.001 { "🔇" } else { "🔊" }).color(DIM));
+    ui.label(RichText::new(if v <= 0.001 { icons::MUTE } else { icons::VOLUME }).color(DIM));
 }
 
 /// Mute any of the 16 MIDI parts, e.g. the guide melody.
 fn parts(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let muted = app.synth.mutes().count_ones();
-    let label = if muted > 0 { format!("แทร็ก ({muted} ปิด)") } else { "แทร็ก".to_string() };
+    let label = if muted > 0 { format!("{}  แทร็ก ({muted} ปิด)", icons::SLIDERS) } else { format!("{}  แทร็ก", icons::SLIDERS) };
     let resp = ui.button(label).on_hover_text("ปิด/เปิดเสียงแต่ละแชนแนล เช่น เมโลดี้นำร้อง");
     egui::Popup::menu(&resp)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
@@ -186,9 +193,12 @@ fn parts(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                         p.rect_filled(bar, CornerRadius::same(2), ACCENT);
                     }
                     let c = if !active { DIM.gamma_multiply(0.5) } else if on { TEXT } else { DIM };
-                    p.text(rect.center() - egui::vec2(0.0, 3.0), Align2::CENTER_CENTER, (ch + 1).to_string(), FontId::proportional(13.0), c);
+                    let mid = rect.center() - egui::vec2(0.0, 2.0);
                     if ch == 9 {
-                        p.text(rect.center() + egui::vec2(0.0, 9.0), Align2::CENTER_CENTER, "กลอง", FontId::proportional(9.0), c);
+                        p.text(mid - egui::vec2(7.0, 0.0), Align2::CENTER_CENTER, "10", FontId::proportional(13.0), c);
+                        p.text(mid + egui::vec2(10.0, 0.0), Align2::CENTER_CENTER, icons::DRUM, FontId::proportional(12.0), c);
+                    } else {
+                        p.text(mid, Align2::CENTER_CENTER, (ch + 1).to_string(), FontId::proportional(13.0), c);
                     }
                     if r.clicked() && active {
                         mutes ^= 1 << ch;

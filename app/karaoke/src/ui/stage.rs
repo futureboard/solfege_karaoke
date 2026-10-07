@@ -8,14 +8,15 @@ use eframe::egui::{self, Align2, Color32, FontId, Galley, Mesh, Painter, Pos2, R
 use solfege_synth::engine::PlayState;
 
 use crate::app::{KaraokeApp, NowPlaying};
+use crate::icons;
 use crate::music::transpose_key;
 use crate::style::{self, ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family};
-use crate::timeline::{COUNT_IN, Cue, Line};
+use crate::timeline::{COUNT_IN_BEATS, Cue, Line};
 use crate::ui::clock;
 
-/// Move the stage to the next line this long before it starts, once the
-/// current line is done.
-const LOOK_AHEAD: f64 = COUNT_IN + 0.5;
+/// Once the current line is done, move the stage to the next line this
+/// long before its count-in would begin.
+const LOOK_AHEAD: f64 = 0.5;
 /// Size of the lines around the focus line, relative to it.
 const SIDE_SCALE: f32 = 0.66;
 
@@ -36,7 +37,8 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         idle(&painter, rect, app.synth.soundfont_name().is_none());
         return;
     };
-    header(&painter, rect, now, key, app.synth.speed(), app.stage_only.then(|| (t, app.synth.duration())));
+    let duration = app.stage_only.then(|| app.synth.duration());
+    header(&painter, rect, now, key, app.synth.speed(), t, duration);
 
     let base = (rect.height() * 0.085).clamp(26.0, 110.0) * scale;
     let max_w = rect.width() - 64.0;
@@ -75,7 +77,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         let alpha = (1.0 - 0.38 * d.abs()).clamp(0.12, 1.0) * if d < 0.0 { 0.75 } else { 1.0 };
         let focus = i == target as usize;
         let count_in = match cue {
-            Cue::CountIn { line, remaining } if line == i => Some(remaining),
+            Cue::CountIn { line, beats } if line == i => Some(beats),
             _ => None,
         };
         draw_line(&painter, now, i, pos2(rect.center().x, y), size, max_w, alpha, t, focus, count_in);
@@ -86,7 +88,9 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
 /// is finished and the next is close.
 fn stage_line(lines: &[Line], focus: usize, t: f64) -> usize {
     match (lines.get(focus), lines.get(focus + 1)) {
-        (Some(cur), Some(next)) if t >= cur.start && t >= cur.end && next.start - t <= LOOK_AHEAD => focus + 1,
+        (Some(cur), Some(next)) if t >= cur.start && t >= cur.end && next.start - t <= next.count_in() + LOOK_AHEAD => {
+            focus + 1
+        }
         _ => focus,
     }
 }
@@ -171,13 +175,15 @@ fn draw_line(
         }
     }
 
-    if let Some(remaining) = count_in {
-        let dots = remaining.ceil().clamp(0.0, COUNT_IN) as usize;
+    // Four dots, one going out on every beat until the line starts.
+    if let Some(beats) = count_in {
+        let n = COUNT_IN_BEATS;
+        let dots = (beats.ceil().max(0.0) as usize).min(n);
         let r = (size * 0.11).max(4.0);
         let y = pos.y - r * 2.6;
-        let pulse = (remaining.fract() as f32).clamp(0.0, 1.0);
-        for k in 0..COUNT_IN as usize {
-            let c = pos2(left + r + k as f32 * r * 3.0, y);
+        let pulse = (beats.fract() as f32).clamp(0.0, 1.0);
+        for k in 0..n {
+            let c = pos2(left + lead + r + k as f32 * r * 3.0, y);
             if k < dots {
                 let grow = if k + 1 == dots { 0.8 + 0.2 * pulse } else { 1.0 };
                 painter.circle_filled(c, r * grow, SUNG);
@@ -228,25 +234,38 @@ fn backdrop(app: &KaraokeApp, painter: &Painter, rect: Rect) {
     }
 }
 
-fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64, time: Option<(f64, f64)>) {
+fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64, t: f64, duration: Option<f64>) {
     let pad = 18.0;
+    let font = FontId::proportional(15.0);
     let title = if now.header.artist.is_empty() {
         now.header.title.clone()
     } else {
         format!("{}  —  {}", now.header.title, now.header.artist)
     };
-    painter.text(rect.left_top() + vec2(pad, pad), Align2::LEFT_TOP, title, FontId::proportional(15.0), DIM);
-    let mut right = Vec::new();
+    painter.text(rect.left_top() + vec2(pad, pad), Align2::LEFT_TOP, title, font.clone(), DIM);
+
+    // Right to left: time (full screen only), tempo with a beat light, key.
+    let mut x = rect.right() - pad;
+    let y = rect.top() + pad;
+    let mut item = |text: String, color: Color32| {
+        let r = painter.text(pos2(x, y), Align2::RIGHT_TOP, text, font.clone(), color);
+        x = r.left() - 22.0;
+        r
+    };
+    if let Some(d) = duration {
+        item(format!("{}  {} / {}", icons::TIMER, clock(t), clock(d)), DIM);
+    }
+    let bpm = now.timeline.tempo.bpm(t) * speed;
+    let r = item(format!("{}  {bpm:.0} BPM", icons::METRONOME), ACCENT);
+    // Flashes on every quarter note and fades through the beat.
+    let phase = now.timeline.tempo.quarters(t).rem_euclid(1.0) as f32;
+    let light = pos2(r.left() - 9.0, r.center().y);
+    painter.circle_filled(light, 4.0, style::mix(DIM.gamma_multiply(0.4), SUNG_HOT, (1.0 - phase).powi(3)));
+    x = light.x - 22.0;
     if let Some(k) = &now.song.key {
-        right.push(format!("คีย์ {}", transpose_key(k, key).unwrap_or_else(|| k.clone())));
+        let shown = transpose_key(k, key).unwrap_or_else(|| k.clone());
+        painter.text(pos2(x, y), Align2::RIGHT_TOP, format!("{}  คีย์ {shown}", icons::KEY), font, ACCENT);
     }
-    if (speed - 1.0).abs() > 1e-3 {
-        right.push(format!("{:.0}%", speed * 100.0));
-    }
-    if let Some((t, d)) = time {
-        right.push(format!("{} / {}", clock(t), clock(d)));
-    }
-    painter.text(rect.right_top() + vec2(-pad, pad), Align2::RIGHT_TOP, right.join("   ·   "), FontId::proportional(15.0), ACCENT);
 }
 
 fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i32) {
@@ -264,7 +283,7 @@ fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i
     painter.text(c + vec2(0.0, base * 0.15), Align2::CENTER_TOP, &now.song.artist, FontId::new(base * 0.5, lyrics_family()), UNSUNG);
     if let Some(k) = &now.song.key {
         let shown = transpose_key(k, key).unwrap_or_else(|| k.clone());
-        painter.text(c + vec2(0.0, base * 0.95), Align2::CENTER_TOP, format!("คีย์ {shown}"), FontId::proportional(base * 0.32), ACCENT);
+        painter.text(c + vec2(0.0, base * 0.95), Align2::CENTER_TOP, format!("{}  คีย์ {shown}", icons::KEY), FontId::proportional(base * 0.32), ACCENT);
     }
 }
 
@@ -274,7 +293,7 @@ fn finished(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, next: Op
     painter.text(c, Align2::CENTER_TOP, &now.song.title, FontId::new(base * 0.45, lyrics_family()), DIM);
     let hint = match next {
         Some(t) => format!("ถัดไป: {t}"),
-        None => "เลือกเพลงต่อไปจากรายการ หรือกด ▶ เพื่อร้องซ้ำ".to_string(),
+        None => "เลือกเพลงต่อไปจากรายการ หรือกดเล่นเพื่อร้องซ้ำ".to_string(),
     };
     painter.text(c + vec2(0.0, base * 1.0), Align2::CENTER_TOP, hint, FontId::proportional(16.0), TEXT);
 }
@@ -282,6 +301,7 @@ fn finished(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, next: Op
 fn idle(painter: &Painter, rect: Rect, no_font: bool) {
     let c = rect.center();
     let size = (rect.height() * 0.1).clamp(28.0, 84.0);
+    painter.text(c - vec2(0.0, size * 1.45), Align2::CENTER_BOTTOM, icons::MIC, FontId::proportional(size * 0.9), ACCENT);
     painter.text(c - vec2(0.0, size * 0.2), Align2::CENTER_BOTTOM, "พร้อมร้อง", FontId::new(size, lyrics_family()), SUNG);
     painter.text(
         c + vec2(0.0, size * 0.1),
@@ -294,7 +314,7 @@ fn idle(painter: &Painter, rect: Rect, no_font: bool) {
         painter.text(
             c + vec2(0.0, size * 0.1 + 30.0),
             Align2::CENTER_TOP,
-            "ยังไม่มี SoundFont — เนื้อร้องจะเลื่อนตามเพลงแต่ไม่มีเสียงดนตรี (ตั้งค่า ⚙)",
+            "ยังไม่มี SoundFont — เนื้อร้องจะเลื่อนตามเพลงแต่ไม่มีเสียงดนตรี (ตั้งค่า)",
             FontId::proportional(13.0),
             DIM,
         );
@@ -307,18 +327,20 @@ mod tests {
     use crate::timeline::Syllable;
 
     fn line(start: f64, end: f64) -> Line {
-        Line { text: "x".into(), syllables: vec![Syllable { text: "x".into(), start, end }], start, end }
+        Line { text: "x".into(), syllables: vec![Syllable { text: "x".into(), start, end }], start, end, beat: 0.5 }
     }
 
     #[test]
     fn stage_moves_on_before_the_next_line() {
+        // 120 BPM: a two second count-in.
         let lines = [line(10.0, 12.0), line(13.0, 15.0), line(30.0, 32.0)];
         assert_eq!(stage_line(&lines, 0, 11.0), 0);
         // Line 0 done, line 1 starts within the look-ahead.
         assert_eq!(stage_line(&lines, 0, 12.2), 1);
-        // Long rest after line 1: stay until the count-in.
+        // Long rest after line 1: stay until just before the count-in.
         assert_eq!(stage_line(&lines, 1, 20.0), 1);
-        assert_eq!(stage_line(&lines, 1, 27.0), 2);
+        assert_eq!(stage_line(&lines, 1, 27.4), 1);
+        assert_eq!(stage_line(&lines, 1, 27.6), 2);
         assert_eq!(stage_line(&lines, 2, 40.0), 2);
         // Before the first line starts nothing moves.
         assert_eq!(stage_line(&lines, 0, 5.0), 0);

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, RichText};
 
+use crate::icons;
 use crate::app::{KaraokeApp, Picking};
 use crate::style::{ACCENT, DIM};
 
@@ -94,7 +95,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("⬆").on_hover_text("โฟลเดอร์แม่").clicked()
+                if ui.button(icons::FOLDER_UP).on_hover_text("โฟลเดอร์แม่").clicked()
                     && let Some(parent) = picker.dir.parent()
                 {
                     go = Some(parent.to_path_buf());
@@ -111,14 +112,14 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
             egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, false]).show(ui, |ui| {
                 for d in &picker.dirs {
                     let name = d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    if ui.selectable_label(false, format!("📁 {name}")).clicked() {
+                    if ui.selectable_label(false, format!("{}  {name}", icons::FOLDER)).clicked() {
                         go = Some(d.clone());
                     }
                 }
                 for f in &picker.files {
                     let name = f.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                     let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
-                    let r = ui.selectable_label(false, format!("🎵 {name}   {:.1} MB", size as f64 / 1e6));
+                    let r = ui.selectable_label(false, format!("{}  {name}   {:.1} MB", icons::FILE_MUSIC, size as f64 / 1e6));
                     if r.clicked() {
                         chosen = Some(f.clone());
                     }
@@ -134,10 +135,10 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
                         .iter()
                         .all(|n| picker.dirs.iter().any(|d| d.file_name().is_some_and(|f| f.eq_ignore_ascii_case(n))));
                     if looks_ncn {
-                        ui.label(RichText::new("✔ พบ Song / Lyrics / Cursor").color(ACCENT));
+                        ui.label(RichText::new(format!("{}  พบ Song / Lyrics / Cursor", icons::CHECK)).color(ACCENT));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("ใช้โฟลเดอร์นี้").clicked() {
+                        if ui.button(format!("{}  ใช้โฟลเดอร์นี้", icons::CHECK)).clicked() {
                             chosen = Some(picker.dir.clone());
                         }
                     });

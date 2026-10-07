@@ -3,6 +3,7 @@
 
 use eframe::egui::{self, Align2, CornerRadius, FontId, RichText, Sense, Stroke, TextEdit};
 
+use crate::icons;
 use crate::app::KaraokeApp;
 use crate::style::{ACCENT, DIM, INK, LINE, RAISED, SUNG, TEXT};
 
@@ -10,7 +11,7 @@ const ROW: f32 = 50.0;
 
 pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("เพลง").size(16.0).strong().color(TEXT));
+        ui.label(RichText::new(format!("{}  เพลง", icons::MUSIC)).size(16.0).strong().color(TEXT));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let lib = &app.library;
             let text = if lib.scanning() {
@@ -27,7 +28,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
 
     let search = ui.add(
         TextEdit::singleline(&mut app.library.query)
-            .hint_text("🔍 ค้นหา ชื่อเพลง / ศิลปิน / รหัส  ( / )")
+            .hint_text(format!("{}  ค้นหา ชื่อเพลง / ศิลปิน / รหัส  ( / )", icons::SEARCH))
             .desired_width(f32::INFINITY)
             .margin(egui::vec2(10.0, 7.0)),
     );
@@ -57,7 +58,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         return;
     }
     if app.library.songs.is_empty() && !app.library.scanning() {
-        ui.label(RichText::new("ยังไม่มีเพลง — เปิดคลังเพลง NCN ได้ที่ ⚙ ตั้งค่า").color(DIM));
+        ui.label(RichText::new("ยังไม่มีเพลง — เปิดคลังเพลง NCN ได้ที่ ตั้งค่า").color(DIM));
         return;
     }
 
@@ -133,10 +134,10 @@ fn row(app: &mut KaraokeApp, ui: &mut egui::Ui, i: usize) -> Option<bool> {
         let b = egui::vec2(28.0, 28.0);
         let queue_r = egui::Rect::from_center_size(egui::pos2(card.right() - 20.0, card.center().y), b);
         let play_r = egui::Rect::from_center_size(egui::pos2(card.right() - 52.0, card.center().y), b);
-        if ui.put(play_r, egui::Button::new("▶").corner_radius(CornerRadius::same(14))).on_hover_text("ร้องเลย").clicked() {
+        if ui.put(play_r, egui::Button::new(icons::PLAY).corner_radius(CornerRadius::same(14))).on_hover_text("ร้องเลย").clicked() {
             out = Some(true);
         }
-        if ui.put(queue_r, egui::Button::new("+").corner_radius(CornerRadius::same(14))).on_hover_text("เพิ่มในคิว").clicked() {
+        if ui.put(queue_r, egui::Button::new(icons::QUEUE_ADD).corner_radius(CornerRadius::same(14))).on_hover_text("เพิ่มในคิว").clicked() {
             out = Some(false);
         }
     }

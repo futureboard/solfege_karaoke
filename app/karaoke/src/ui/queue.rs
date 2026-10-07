@@ -2,25 +2,26 @@
 
 use eframe::egui::{self, CornerRadius, Frame, Margin, RichText, Stroke};
 
+use crate::icons;
 use crate::app::KaraokeApp;
 use crate::music::transpose_key;
 use crate::style::{ACCENT, DIM, INK, LINE, SUNG, TEXT};
 use crate::ui::{chip, clock};
 
 pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
-    ui.label(RichText::new("กำลังร้อง").size(16.0).strong().color(TEXT));
+    ui.label(RichText::new(format!("{}  กำลังร้อง", icons::MIC)).size(16.0).strong().color(TEXT));
     ui.add_space(4.0);
     now_card(app, ui);
     ui.add_space(14.0);
 
     ui.horizontal(|ui| {
-        ui.label(RichText::new("คิวเพลง").size(16.0).strong().color(TEXT));
+        ui.label(RichText::new(format!("{}  คิวเพลง", icons::QUEUE)).size(16.0).strong().color(TEXT));
         ui.label(RichText::new(app.queue.len().to_string()).size(12.0).color(DIM));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if !app.queue.is_empty() && ui.small_button("ล้าง").clicked() {
+            if !app.queue.is_empty() && ui.small_button(icons::TRASH).on_hover_text("ล้างคิว").clicked() {
                 app.queue.clear();
             }
-            if ui.add_enabled(!app.queue.is_empty(), egui::Button::new("⏭ ถัดไป").small()).clicked() {
+            if ui.add_enabled(!app.queue.is_empty(), egui::Button::new(format!("{}  ถัดไป", icons::NEXT)).small()).clicked() {
                 app.play_next();
             }
         });
@@ -53,10 +54,10 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                             ui.add(egui::Label::new(RichText::new(&h.artist).size(12.0).color(DIM)).truncate());
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.small_button("×").on_hover_text("เอาออก").clicked() {
+                            if ui.small_button(icons::CLOSE).on_hover_text("เอาออก").clicked() {
                                 op = Some(Op::Remove(i));
                             }
-                            if i > 0 && ui.small_button("⬆").on_hover_text("เลื่อนขึ้น").clicked() {
+                            if i > 0 && ui.small_button(icons::MOVE_UP).on_hover_text("เลื่อนขึ้น").clicked() {
                                 op = Some(Op::Up(i));
                             }
                         });
@@ -115,11 +116,11 @@ fn now_card(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                 let key = app.synth.key();
                 if let Some(k) = &now.song.key {
                     let shown = transpose_key(k, key).unwrap_or_else(|| k.clone());
-                    chip(ui, format!("คีย์ {shown}"), ACCENT);
+                    chip(ui, format!("{}  คีย์ {shown}", icons::KEY), ACCENT);
                 }
-                let bpm = now.song.tempo.initial_bpm() * app.synth.speed();
-                chip(ui, format!("{bpm:.0} BPM"), DIM);
-                chip(ui, now.header.id.clone(), DIM);
+                if let Some(bpm) = app.bpm() {
+                    chip(ui, format!("{}  {bpm:.0} BPM", icons::METRONOME), DIM);
+                }
             });
             ui.add_space(6.0);
             let (bar, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());

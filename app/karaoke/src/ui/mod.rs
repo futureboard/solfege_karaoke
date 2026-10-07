@@ -10,6 +10,7 @@ mod transport;
 
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Margin, Panel, RichText, Stroke};
 
+use crate::icons;
 use crate::app::KaraokeApp;
 use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, PANEL, RAISED, SUNG, TEXT};
 
@@ -53,10 +54,10 @@ fn top_bar(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         ui.label(RichText::new("Solfege").size(18.0).strong().color(TEXT));
         ui.label(RichText::new("Karaoke").size(18.0).color(SUNG));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("⚙ ตั้งค่า").on_hover_text("คลังเพลง, SoundFont, อุปกรณ์เสียง").clicked() {
+            if ui.button(format!("{}  ตั้งค่า", icons::SETTINGS)).on_hover_text("คลังเพลง, SoundFont, อุปกรณ์เสียง").clicked() {
                 app.show_settings = !app.show_settings;
             }
-            if ui.button("⛶ เต็มจอ").on_hover_text("แสดงเฉพาะเนื้อร้อง (F / F11, Esc เพื่อออก)").clicked() {
+            if ui.button(format!("{}  เต็มจอ", icons::FULLSCREEN)).on_hover_text("แสดงเฉพาะเนื้อร้อง (F / F11, Esc เพื่อออก)").clicked() {
                 let ctx = ui.ctx().clone();
                 app.set_stage_only(&ctx, true);
             }
@@ -80,13 +81,13 @@ fn logo(ui: &mut egui::Ui) {
 
 fn status_chip(app: &KaraokeApp, ui: &mut egui::Ui) {
     let (text, color) = if app.synth.loading_soundfont() {
-        ("กำลังโหลด SoundFont…".to_string(), DIM)
+        (format!("{}  กำลังโหลด SoundFont…", icons::LOADER), DIM)
     } else if app.synth.output_error.is_some() {
-        ("ไม่มีอุปกรณ์เสียง".to_string(), DANGER)
+        (format!("{}  ไม่มีอุปกรณ์เสียง", icons::ALERT), DANGER)
     } else if let Some(name) = app.synth.soundfont_name() {
-        (format!("♪ {name}"), DIM)
+        (format!("{}  {name}", icons::MUSIC), DIM)
     } else {
-        ("ยังไม่มี SoundFont".to_string(), DANGER)
+        (format!("{}  ยังไม่มี SoundFont", icons::ALERT), DANGER)
     };
     let r = ui.label(RichText::new(text).size(12.0).color(color));
     if let Some(e) = &app.synth.output_error {

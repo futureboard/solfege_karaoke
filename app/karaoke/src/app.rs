@@ -148,6 +148,13 @@ impl KaraokeApp {
         t - self.settings.lyric_offset_ms as f64 / 1000.0
     }
 
+    /// Tempo being heard now: the song's tempo at this point times the
+    /// speed setting.
+    pub fn bpm(&self) -> Option<f64> {
+        let now = self.now.as_ref()?;
+        Some(now.timeline.tempo.bpm(self.synth.time()) * self.synth.speed())
+    }
+
     pub fn play_now(&mut self, header: SongHeader) {
         let song = match self.library.load(&header.id) {
             Ok(s) => s,

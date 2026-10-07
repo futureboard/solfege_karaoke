@@ -2,6 +2,7 @@
 
 use eframe::egui::{self, RichText};
 
+use crate::icons;
 use crate::app::{KaraokeApp, Picking};
 use crate::style::{DANGER, DIM, TEXT};
 use crate::ui::files::{FilePicker, Mode};
@@ -31,14 +32,14 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
         .default_width(520.0)
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
         .show(ctx, |ui| {
-            section(ui, "คลังเพลง NCN", "โฟลเดอร์ที่มี Song, Lyrics และ Cursor");
+            section(ui, icons::MUSIC, "คลังเพลง NCN", "โฟลเดอร์ที่มี Song, Lyrics และ Cursor");
             path_row(ui, app.library.root.as_deref().map(|p| p.display().to_string()));
             ui.horizontal(|ui| {
-                if ui.button("เลือกโฟลเดอร์…").clicked() {
+                if ui.button(format!("{}  เลือกโฟลเดอร์…", icons::FOLDER_OPEN)).clicked() {
                     let start = app.library.root.clone();
                     app.picker = Some((Picking::Library, FilePicker::new(Mode::Folder, start)));
                 }
-                if ui.add_enabled(app.library.root.is_some(), egui::Button::new("สแกนใหม่")).clicked()
+                if ui.add_enabled(app.library.root.is_some(), egui::Button::new(format!("{}  สแกนใหม่", icons::REFRESH))).clicked()
                     && let Some(root) = app.library.root.clone()
                 {
                     app.open_library(root);
@@ -46,10 +47,10 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
             });
             ui.add_space(12.0);
 
-            section(ui, "SoundFont", "ไฟล์ .sf2 (General MIDI) สำหรับเล่นดนตรี");
+            section(ui, icons::FILE_MUSIC, "SoundFont", "ไฟล์ .sf2 (General MIDI) สำหรับเล่นดนตรี");
             path_row(ui, app.synth.font_path.as_deref().map(|p| p.display().to_string()));
             ui.horizontal(|ui| {
-                if ui.button("เลือกไฟล์…").clicked() {
+                if ui.button(format!("{}  เลือกไฟล์…", icons::FILE_MUSIC)).clicked() {
                     let start = app.synth.font_path.clone();
                     app.picker = Some((Picking::SoundFont, FilePicker::new(Mode::File(&["sf2", "sfz"]), start)));
                 }
@@ -60,7 +61,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
             });
             ui.add_space(12.0);
 
-            section(ui, "อุปกรณ์เสียง", "");
+            section(ui, icons::HEADPHONES, "อุปกรณ์เสียง", "");
             if app.devices.is_empty() {
                 app.devices = solfege_synth::audio::output_devices();
             }
@@ -77,7 +78,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
                     app.settings.device = choice;
                     app.reopen_output();
                 }
-                if ui.button("⟳").on_hover_text("ค้นหาอุปกรณ์ใหม่").clicked() {
+                if ui.button(icons::REFRESH).on_hover_text("ค้นหาอุปกรณ์ใหม่").clicked() {
                     app.devices = solfege_synth::audio::output_devices();
                 }
             });
@@ -87,7 +88,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
             };
             ui.add_space(12.0);
 
-            section(ui, "เนื้อร้อง", "");
+            section(ui, icons::TYPE, "เนื้อร้อง", "");
             egui::Grid::new("lyric-settings").num_columns(2).spacing([16.0, 8.0]).show(ui, |ui| {
                 ui.label("ขนาดตัวอักษร");
                 ui.add(egui::Slider::new(&mut app.settings.lyric_scale, 0.6..=1.6).fixed_decimals(2));
@@ -99,7 +100,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
             });
             ui.add_space(12.0);
 
-            section(ui, "ปุ่มลัด", "");
+            section(ui, icons::KEYBOARD, "ปุ่มลัด", "");
             egui::Grid::new("keys").num_columns(4).spacing([12.0, 4.0]).show(ui, |ui| {
                 for (i, (k, what)) in KEYS.iter().enumerate() {
                     ui.label(RichText::new(*k).monospace().color(TEXT));
@@ -115,9 +116,9 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
     }
 }
 
-fn section(ui: &mut egui::Ui, title: &str, hint: &str) {
+fn section(ui: &mut egui::Ui, icon: &str, title: &str, hint: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(title).strong().color(TEXT));
+        ui.label(RichText::new(format!("{icon}  {title}")).strong().color(TEXT));
         if !hint.is_empty() {
             ui.label(RichText::new(hint).size(12.0).color(DIM));
         }

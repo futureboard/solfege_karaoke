@@ -35,8 +35,13 @@ pub fn install(ctx: &egui::Context) {
     add(&mut fonts, "noto-thai", include_bytes!("../assets/fonts/NotoSansThai-Regular.ttf"));
     add(&mut fonts, "noto-thai-bold", include_bytes!("../assets/fonts/NotoSansThai-Bold.ttf"));
     add(&mut fonts, "noto-sans-bold", include_bytes!("../assets/fonts/NotoSans-Bold.ttf"));
+    add(&mut fonts, "lucide", include_bytes!("../assets/fonts/lucide.ttf"));
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
-        fonts.families.entry(family).or_default().push("noto-thai".into());
+        let list = fonts.families.entry(family).or_default();
+        // Lucide first: its private-use code points would otherwise hit the
+        // icon font egui ships. It has no other glyphs, so text falls through.
+        list.insert(0, "lucide".into());
+        list.push("noto-thai".into());
     }
     // Thai first so a Thai phrase and its spaces shape as one run; Latin
     // letters fall through to Noto Sans.
