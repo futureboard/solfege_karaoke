@@ -1,4 +1,4 @@
-//! Solfege Karaoke: sing along to NCN karaoke songs. The backing MIDI plays
+//! Solfege Karaoke: sing along to NCN and .sfkar karaoke songs. The backing MIDI plays
 //! through the `solfege_synth` engine with a SoundFont; lyrics come from
 //! `solfege_ncnparser` and light up syllable by syllable.
 
@@ -21,16 +21,21 @@ use eframe::egui;
 
 use app::{KaraokeApp, Launch};
 
+/// Name of the settings and song catalogue folder.
+pub const APP_ID: &str = "solfege-karaoke";
+
 const USAGE: &str = "\
 solfege-karaoke - NCN karaoke player
 
 USAGE:
-    solfege-karaoke [OPTIONS] [SONG_ID]
+    solfege-karaoke [OPTIONS] [SONG]
 
-    SONG_ID starts that song once the library is loaded (e.g. Z2608001).
+    SONG is a song code from the catalogue (e.g. Z2608001), started once
+    the library is scanned, or a .sfkar file to play directly.
 
 OPTIONS:
-    -L, --library <DIR>     NCN library folder (holds Song, Lyrics, Cursor)
+    -L, --library <DIR>     add a song folder: an NCN library (Song, Lyrics,
+                            Cursor) or a folder of .sfkar files
     -s, --soundfont <FILE>  SoundFont (.sf2) for the backing tracks
     -d, --device <NAME>     audio output device (substring match)
     -l, --list              list audio output devices, then exit
@@ -78,6 +83,6 @@ fn main() -> Result<()> {
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };
-    eframe::run_native("solfege-karaoke", options, Box::new(|cc| Ok(Box::new(KaraokeApp::new(cc, launch)))))
+    eframe::run_native(APP_ID, options, Box::new(|cc| Ok(Box::new(KaraokeApp::new(cc, launch)))))
         .map_err(|e| anyhow!("{e}"))
 }

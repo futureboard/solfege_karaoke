@@ -5,7 +5,7 @@
 //! output device it runs on a paced thread instead, so lyrics still follow
 //! the song (silently) and the rest of the app behaves the same.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use solfege_synth::audio::{self, AudioOut};
+use solfege_synth::engine::mixer::{DRUM_STRIP_BASE, FxParams, GM_GROUP_NAMES, StripParams};
 use solfege_synth::engine::{Command, Engine, Garbage, NO_DRUMS, PlayState, Shared, Slot, SlotParams, load_peak};
 use solfege_synth::instrument::{self, Instrument, db_to_gain};
 use solfege_synth::smf;
@@ -22,6 +23,44 @@ const MELODIC: usize = 0;
 const DRUMS: usize = 1;
 
 pub const KEY_RANGE: i32 = 12;
+/// Drum kit pieces with their own mixer strip (GM note groups).
+pub const KIT: usize = 6;
+
+pub fn kit_name(group: usize) -> &'static str {
+    GM_GROUP_NAMES[group]
+}
+
+/// Mixer settings the app owns and replays into every new engine.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mixer {
+    /// One strip per MIDI channel of the melodic slot (10 is unused there).
+    pub channels: [StripParams; 16],
+    /// Drum kit pieces on channel 10.
+    pub kit: [StripParams; KIT],
+    pub fx: FxParams,
+}
+
+impl Default for Mixer {
+    fn default() -> Self {
+        Self { channels: [StripParams::default(); 16], kit: [StripParams::default(); KIT], fx: FxParams::default() }
+    }
+}
+
+/// A mixer strip as the app addresses it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StripId {
+    Channel(usize),
+    Kit(usize),
+}
+
+impl StripId {
+    fn engine(self) -> (usize, usize) {
+        match self {
+            StripId::Channel(ch) => (MELODIC, ch),
+            StripId::Kit(g) => (DRUMS, DRUM_STRIP_BASE + g),
+        }
+    }
+}
 
 enum Output {
     None,
@@ -67,7 +106,7 @@ pub struct Synth {
     key: i32,
     speed: f64,
     volume: f32,
-    mutes: u16,
+    mixer: Mixer,
 }
 
 impl Synth {
@@ -92,7 +131,7 @@ impl Synth {
             key: 0,
             speed: 1.0,
             volume: 0.8,
-            mutes: 0,
+            mixer: Mixer::default(),
         }
     }
 
@@ -128,12 +167,27 @@ impl Synth {
         if let Some(inst) = &self.font {
             self.send(Command::AddSlot(Box::new(Slot::new(inst.clone(), 0, self.melodic_params()))));
             self.send(Command::AddSlot(Box::new(Slot::new(inst.clone(), 0, drum_params()))));
+            self.send_strips();
         }
+        self.send(Command::SetFx(self.mixer.fx));
         if let Some(song) = &self.song {
             self.send(Command::LoadSong(song.clone()));
             self.send(Command::SetSpeed(self.speed));
-            self.send(Command::ChannelMutes(self.mutes));
         }
+    }
+
+    fn send_strips(&self) {
+        for ch in 0..16 {
+            self.send_strip(StripId::Channel(ch));
+        }
+        for g in 0..KIT {
+            self.send_strip(StripId::Kit(g));
+        }
+    }
+
+    fn send_strip(&self, id: StripId) {
+        let (slot, strip) = id.engine();
+        self.send(Command::SetStrip { slot, strip, params: self.strip(id) });
     }
 
     // --------------------------------------------------------- soundfont
@@ -160,6 +214,7 @@ impl Synth {
         if self.font.is_none() {
             self.send(Command::AddSlot(Box::new(Slot::new(inst.clone(), 0, self.melodic_params()))));
             self.send(Command::AddSlot(Box::new(Slot::new(inst.clone(), 0, drum_params()))));
+            self.send_strips();
         } else {
             for slot in [MELODIC, DRUMS] {
                 self.send(Command::SetInstrument { slot, inst: inst.clone(), preset: 0, keep_voices: false });
@@ -174,11 +229,11 @@ impl Synth {
 
     // -------------------------------------------------------------- song
 
-    pub fn load_song(&mut self, path: &Path) -> Result<()> {
-        let song = Arc::new(smf::load(path)?);
+    /// Load a backing track from Standard MIDI File bytes.
+    pub fn load_midi(&mut self, bytes: &[u8], name: &str) -> Result<()> {
+        let song = Arc::new(smf::parse(bytes, name)?);
         self.send(Command::LoadSong(song.clone()));
         self.send(Command::SetSpeed(self.speed));
-        self.send(Command::ChannelMutes(self.mutes));
         self.song = Some(song);
         self.state = PlayState::Stopped;
         self.seen_playing = false;
@@ -237,11 +292,6 @@ impl Synth {
         self.song.as_ref().map_or(0, |s| s.channels_used)
     }
 
-    /// Recent note-on strength of a channel, 0..1.
-    pub fn activity(&self, ch: usize) -> f32 {
-        load_peak(&self.shared.channel_activity[ch])
-    }
-
     // ---------------------------------------------------------- controls
 
     pub fn key(&self) -> i32 {
@@ -273,13 +323,63 @@ impl Synth {
         self.send(Command::MasterGain(db_to_gain(volume_db(self.volume))));
     }
 
-    pub fn mutes(&self) -> u16 {
-        self.mutes
+    pub fn mixer(&self) -> &Mixer {
+        &self.mixer
     }
 
-    pub fn set_mutes(&mut self, m: u16) {
-        self.mutes = m;
-        self.send(Command::ChannelMutes(m));
+    pub fn strip(&self, id: StripId) -> StripParams {
+        match id {
+            StripId::Channel(ch) => self.mixer.channels[ch],
+            StripId::Kit(g) => self.mixer.kit[g],
+        }
+    }
+
+    pub fn set_strip(&mut self, id: StripId, params: StripParams) {
+        let params = params.clamped();
+        match id {
+            StripId::Channel(ch) => self.mixer.channels[ch] = params,
+            StripId::Kit(g) => self.mixer.kit[g] = params,
+        }
+        self.send_strip(id);
+    }
+
+    pub fn set_fx(&mut self, fx: FxParams) {
+        self.mixer.fx = fx.clamped();
+        self.send(Command::SetFx(self.mixer.fx));
+    }
+
+    /// Channel strips back to neutral (each song has its own parts); the
+    /// drum kit and effects stay as set.
+    pub fn reset_channels(&mut self) {
+        self.mixer.channels = [StripParams::default(); 16];
+        for ch in 0..16 {
+            self.send_strip(StripId::Channel(ch));
+        }
+    }
+
+    /// Any channel or kit strip muted or soloed.
+    pub fn mixer_touched(&self) -> bool {
+        let m = &self.mixer;
+        m.channels.iter().chain(&m.kit).any(|s| s.mute || s.solo)
+    }
+
+    /// Peak level (left, right) of a strip, 0..1+.
+    pub fn strip_peak(&self, id: StripId) -> (f32, f32) {
+        let (slot, strip) = id.engine();
+        let m = &self.shared.slots[slot];
+        (load_peak(&m.strip_l[strip]), load_peak(&m.strip_r[strip]))
+    }
+
+    pub fn master_peak(&self) -> (f32, f32) {
+        (load_peak(&self.shared.master_l), load_peak(&self.shared.master_r))
+    }
+
+    /// Sound (preset) a channel is playing, from the SoundFont.
+    pub fn channel_sound(&self, ch: usize) -> Option<&str> {
+        let font = self.font.as_ref()?;
+        let info = self.shared.slots[MELODIC].channels[ch].load();
+        info.program?;
+        font.presets.get(info.preset).map(|p| p.name.as_str())
     }
 
     fn melodic_params(&self) -> SlotParams {
@@ -384,7 +484,7 @@ mod tests {
         // A device name nothing matches forces the silent engine.
         s.start_output(Some("\u{1}no such device\u{1}"));
         assert!(s.output_error.is_some());
-        s.load_song(&path).unwrap();
+        s.load_midi(&std::fs::read(&path).unwrap(), "two").unwrap();
         assert!((s.duration() - 1.0).abs() < 0.01, "{}", s.duration());
         s.set_speed(1.5);
         s.play();
@@ -423,7 +523,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(s.soundfont_name().is_some());
-        s.load_song(&midi).unwrap();
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
         s.set_key(2);
         s.play();
         s.seek(20.0);
@@ -439,5 +539,51 @@ mod tests {
         }
         assert!(melodic > 0 && drums > 0, "melodic {melodic}, drums {drums}");
         assert!(s.time() > 20.0);
+    }
+
+    #[test]
+    fn mixer_strips_reach_the_engine() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608001.mid");
+        let Some(sf2) = crate::library::find_soundfont().filter(|_| midi.is_file()) else {
+            eprintln!("skipped: needs a .sf2 and the shared/NCN sample library");
+            return;
+        };
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.load_soundfont(sf2);
+        let t0 = Instant::now();
+        while s.loading_soundfont() && t0.elapsed() < Duration::from_secs(60) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
+        s.play();
+        s.seek(20.0);
+        let loudest = |s: &mut Synth, ms: u64| {
+            let mut peak = 0.0f32;
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_millis(ms) {
+                s.poll();
+                let (l, r) = s.master_peak();
+                peak = peak.max(l).max(r);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            peak
+        };
+        assert!(loudest(&mut s, 800) > 0.01, "music is audible");
+        assert!(s.channel_sound(0).is_some(), "channel 1 reports its sound");
+        for id in (0..16).map(StripId::Channel).chain((0..KIT).map(StripId::Kit)) {
+            let p = s.strip(id);
+            s.set_strip(id, StripParams { mute: true, ..p });
+        }
+        assert!(s.mixer_touched());
+        loudest(&mut s, 2000); // the reverb tail dies away
+        assert!(loudest(&mut s, 400) < 0.01, "every strip muted");
+        s.reset_channels();
+        for g in 0..KIT {
+            let p = s.strip(StripId::Kit(g));
+            s.set_strip(StripId::Kit(g), StripParams { mute: false, ..p });
+        }
+        assert!(!s.mixer_touched());
     }
 }

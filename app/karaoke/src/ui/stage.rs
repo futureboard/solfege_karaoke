@@ -60,7 +60,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     }
 
     let target = stage_line(&tl.lines, tl.focus(t), t) as f32;
-    let id = ui.id().with("stage-scroll").with(&now.header.id);
+    let id = ui.id().with("stage-scroll").with(&now.entry.id);
     let scroll = ui.ctx().animate_value_with_time(id, target, 0.35);
     let spacing = base * 1.7;
     let center = rect.center().y + base * 0.15;
@@ -210,10 +210,10 @@ fn backdrop(painter: &Painter, rect: Rect) {
 fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64, t: f64, duration: Option<f64>) {
     let pad = 18.0;
     let font = FontId::proportional(15.0);
-    let title = if now.header.artist.is_empty() {
-        now.header.title.clone()
+    let title = if now.entry.artist.is_empty() {
+        now.entry.title.clone()
     } else {
-        format!("{}  —  {}", now.header.title, now.header.artist)
+        format!("{}  —  {}", now.entry.title, now.entry.artist)
     };
     painter.text(rect.left_top() + vec2(pad, pad), Align2::LEFT_TOP, title, font.clone(), DIM);
     let Some(d) = duration else { return };
@@ -234,7 +234,7 @@ fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64,
     let light = pos2(r.left() - 9.0, r.center().y);
     painter.circle_filled(light, 4.0, style::mix(DIM.gamma_multiply(0.4), SUNG_HOT, (1.0 - phase).powi(3)));
     x = light.x - 22.0;
-    if let Some(k) = &now.song.key {
+    if let Some(k) = &now.song.meta.key {
         let shown = transpose_key(k, key).unwrap_or_else(|| k.clone());
         painter.text(pos2(x, y), Align2::RIGHT_TOP, format!("{}  คีย์ {shown}", icons::KEY), font, ACCENT);
     }
@@ -244,16 +244,16 @@ fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i
     let c = rect.center();
     let max_w = rect.width() - 80.0;
     let mut size = base * 1.05;
-    let mut g = painter.layout_no_wrap(now.song.title.clone(), FontId::new(size, lyrics_family()), SUNG);
+    let mut g = painter.layout_no_wrap(now.song.meta.title.clone(), FontId::new(size, lyrics_family()), SUNG);
     if g.size().x > max_w {
         size *= max_w / g.size().x;
-        g = painter.layout_no_wrap(now.song.title.clone(), FontId::new(size, lyrics_family()), SUNG);
+        g = painter.layout_no_wrap(now.song.meta.title.clone(), FontId::new(size, lyrics_family()), SUNG);
     }
     let pos = c - vec2(g.size().x / 2.0, g.size().y + base * 0.2);
     outline(painter, &g, pos, size, INK);
     painter.galley(pos, g, SUNG);
-    painter.text(c + vec2(0.0, base * 0.15), Align2::CENTER_TOP, &now.song.artist, FontId::new(base * 0.5, lyrics_family()), UNSUNG);
-    if let Some(k) = &now.song.key {
+    painter.text(c + vec2(0.0, base * 0.15), Align2::CENTER_TOP, &now.song.meta.artist, FontId::new(base * 0.5, lyrics_family()), UNSUNG);
+    if let Some(k) = &now.song.meta.key {
         let shown = transpose_key(k, key).unwrap_or_else(|| k.clone());
         painter.text(c + vec2(0.0, base * 0.95), Align2::CENTER_TOP, format!("{}  คีย์ {shown}", icons::KEY), FontId::proportional(base * 0.32), ACCENT);
     }
@@ -262,7 +262,7 @@ fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i
 fn finished(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, next: Option<&str>) {
     let c = rect.center();
     painter.text(c - vec2(0.0, base * 0.3), Align2::CENTER_BOTTOM, "จบเพลง", FontId::new(base, lyrics_family()), SUNG);
-    painter.text(c, Align2::CENTER_TOP, &now.song.title, FontId::new(base * 0.45, lyrics_family()), DIM);
+    painter.text(c, Align2::CENTER_TOP, &now.song.meta.title, FontId::new(base * 0.45, lyrics_family()), DIM);
     let hint = match next {
         Some(t) => format!("ถัดไป: {t}"),
         None => "กด / เพื่อเลือกเพลงต่อไป หรือ Space เพื่อร้องซ้ำ".to_string(),

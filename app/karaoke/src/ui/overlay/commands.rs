@@ -24,15 +24,16 @@ pub enum Cmd {
     Songs,
     Queue,
     ClearQueue,
-    Tracks,
-    UnmuteAll,
+    Mixer,
+    ResetMixer,
+    Favorite,
     Settings,
     OpenLibrary,
     Rescan,
     ChooseSoundFont,
 }
 
-pub const ALL: [Cmd; 20] = [
+pub const ALL: [Cmd; 21] = [
     Cmd::PlayPause,
     Cmd::Restart,
     Cmd::Stop,
@@ -47,8 +48,9 @@ pub const ALL: [Cmd; 20] = [
     Cmd::Songs,
     Cmd::Queue,
     Cmd::ClearQueue,
-    Cmd::Tracks,
-    Cmd::UnmuteAll,
+    Cmd::Mixer,
+    Cmd::ResetMixer,
+    Cmd::Favorite,
     Cmd::Settings,
     Cmd::OpenLibrary,
     Cmd::Rescan,
@@ -69,7 +71,8 @@ impl Cmd {
             Cmd::Songs => icons::SEARCH,
             Cmd::Queue => icons::QUEUE,
             Cmd::ClearQueue => icons::TRASH,
-            Cmd::Tracks | Cmd::UnmuteAll => icons::SLIDERS,
+            Cmd::Mixer | Cmd::ResetMixer => icons::MIXER,
+            Cmd::Favorite => icons::STAR,
             Cmd::Settings => icons::SETTINGS,
             Cmd::OpenLibrary | Cmd::Rescan => icons::FOLDER_OPEN,
             Cmd::ChooseSoundFont => icons::FILE_MUSIC,
@@ -79,7 +82,7 @@ impl Cmd {
     pub fn label(self, app: &KaraokeApp) -> String {
         let key = app.synth.key();
         let key_name = |k: i32| {
-            let song_key = app.now.as_ref().and_then(|n| n.song.key.as_deref());
+            let song_key = app.now.as_ref().and_then(|n| n.song.meta.key.as_deref());
             match song_key.and_then(|s| transpose_key(s, k)) {
                 Some(name) => format!("{name} ({})", signed(k)),
                 None => signed(k),
@@ -106,10 +109,15 @@ impl Cmd {
             Cmd::Songs => "ค้นหาเพลง".into(),
             Cmd::Queue => format!("ดูคิวเพลง ({})", app.queue.len()),
             Cmd::ClearQueue => "ล้างคิว".into(),
-            Cmd::Tracks => "แทร็ก: ปิด / เปิดเสียงแต่ละแชนแนล".into(),
-            Cmd::UnmuteAll => "เปิดเสียงทุกแทร็ก".into(),
+            Cmd::Mixer => "มิกเซอร์".into(),
+            Cmd::ResetMixer => "รีเซ็ตมิกเซอร์แชนแนลของเพลงนี้".into(),
+            Cmd::Favorite => match &app.now {
+                Some(n) if app.library.is_favorite(&n.entry.uid) => format!("เอาออกจากเพลงโปรด: {}", n.entry.title),
+                Some(n) => format!("เพิ่มในเพลงโปรด: {}", n.entry.title),
+                None => "เพลงโปรด".into(),
+            },
             Cmd::Settings => "ตั้งค่า".into(),
-            Cmd::OpenLibrary => "เปิดคลังเพลง NCN…".into(),
+            Cmd::OpenLibrary => "เพิ่มโฟลเดอร์เพลง (NCN / .sfkar)…".into(),
             Cmd::Rescan => "สแกนคลังเพลงใหม่".into(),
             Cmd::ChooseSoundFont => "เลือก SoundFont…".into(),
         }
@@ -127,9 +135,10 @@ impl Cmd {
             Cmd::Fullscreen => "fullscreen stage",
             Cmd::Songs => "song search find",
             Cmd::Queue | Cmd::ClearQueue => "queue",
-            Cmd::Tracks | Cmd::UnmuteAll => "tracks channels mute",
+            Cmd::Mixer | Cmd::ResetMixer => "mixer tracks channels mute solo volume",
+            Cmd::Favorite => "favorite favourite star",
             Cmd::Settings => "settings preferences",
-            Cmd::OpenLibrary | Cmd::Rescan => "library ncn folder scan",
+            Cmd::OpenLibrary | Cmd::Rescan => "library ncn sfkar folder scan database",
             Cmd::ChooseSoundFont => "soundfont sf2",
         }
     }
@@ -145,7 +154,7 @@ impl Cmd {
             Cmd::Fullscreen => &["F"],
             Cmd::Songs => &["/"],
             Cmd::Queue => &["Q"],
-            Cmd::Tracks => &["T"],
+            Cmd::Mixer => &["M"],
             Cmd::Settings => &["Ctrl", ","],
             _ => &[],
         }
@@ -159,8 +168,8 @@ impl Cmd {
             Cmd::KeyReset => song && app.synth.key() != 0,
             Cmd::SpeedReset => song && (app.synth.speed() - 1.0).abs() > 1e-3,
             Cmd::Next | Cmd::ClearQueue => !app.queue.is_empty(),
-            Cmd::UnmuteAll => app.synth.mutes() != 0,
-            Cmd::Rescan => app.library.root.is_some(),
+            Cmd::ResetMixer | Cmd::Favorite => song,
+            Cmd::Rescan => !app.library.db.sources.is_empty(),
             _ => true,
         }
     }
@@ -231,20 +240,27 @@ pub fn run(app: &mut KaraokeApp, ov: &mut Overlay, cmd: Cmd, ctx: &egui::Context
             app.queue.clear();
             Outcome::Stay
         }
-        Cmd::Tracks => Outcome::Goto(Page::Tracks),
-        Cmd::UnmuteAll => {
-            app.synth.set_mutes(0);
+        Cmd::Mixer => Outcome::Goto(Page::Mixer),
+        Cmd::ResetMixer => {
+            app.synth.reset_channels();
+            Outcome::Stay
+        }
+        Cmd::Favorite => {
+            if let Some(uid) = app.now.as_ref().map(|n| n.entry.uid.clone())
+                && let Err(e) = app.library.toggle_favorite(&uid)
+            {
+                app.toast_error(e);
+            }
             Outcome::Stay
         }
         Cmd::Settings => Outcome::Goto(Page::Settings),
         Cmd::OpenLibrary => {
-            ov.browse(Target::Library, app.library.root.clone());
+            let start = app.library.db.sources.last().map(|s| s.path.clone());
+            ov.browse(Target::Library, start);
             Outcome::Stay
         }
         Cmd::Rescan => {
-            if let Some(root) = app.library.root.clone() {
-                app.open_library(root);
-            }
+            app.library.rescan();
             Outcome::Close
         }
         Cmd::ChooseSoundFont => {

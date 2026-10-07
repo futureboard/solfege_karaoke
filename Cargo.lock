@@ -1767,6 +1767,8 @@ dependencies = [
  "eframe",
  "serde",
  "solfege_ncnparser",
+ "solfege_sfkar",
+ "solfege_songdb",
  "solfege_synth",
 ]
 
@@ -2100,6 +2102,14 @@ dependencies = [
  "indexmap",
  "rustc-hash 1.1.0",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ncn2sfkar"
+version = "0.1.0"
+dependencies = [
+ "solfege_ncnparser",
+ "solfege_sfkar",
 ]
 
 [[package]]
@@ -3543,6 +3553,25 @@ dependencies = [
 [[package]]
 name = "solfege_ncnparser"
 version = "0.1.0"
+
+[[package]]
+name = "solfege_sfkar"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "solfege_ncnparser",
+]
+
+[[package]]
+name = "solfege_songdb"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "solfege_ncnparser",
+ "solfege_sfkar",
+]
 
 [[package]]
 name = "solfege_synth"

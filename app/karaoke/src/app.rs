@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use solfege_ncnparser::{NcnSong, SongHeader};
+use solfege_sfkar::KarSong;
+use solfege_songdb::Song;
 use solfege_synth::engine::PlayState;
 
 use crate::library::{self, Library};
@@ -18,6 +19,8 @@ const SETTINGS_KEY: &str = "settings";
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Library folder of older versions; moved into the song catalogue.
+    #[serde(skip_serializing)]
     pub library: Option<PathBuf>,
     pub soundfont: Option<PathBuf>,
     pub device: Option<String>,
@@ -40,12 +43,14 @@ pub struct Launch {
     pub library: Option<PathBuf>,
     pub soundfont: Option<PathBuf>,
     pub device: Option<String>,
+    /// A song code from the catalogue, or a `.sfkar` file.
     pub song: Option<String>,
 }
 
 pub struct NowPlaying {
-    pub header: SongHeader,
-    pub song: NcnSong,
+    /// The catalogue entry (or a loose `.sfkar` file).
+    pub entry: Song,
+    pub song: KarSong,
     pub timeline: Timeline,
     /// Syllable edges per line as fractions of the line width, measured once.
     pub edges: HashMap<usize, Vec<f32>>,
@@ -63,12 +68,12 @@ pub struct KaraokeApp {
     pub settings: Settings,
     pub synth: Synth,
     pub library: Library,
-    pub queue: VecDeque<SongHeader>,
+    pub queue: VecDeque<Song>,
     pub now: Option<NowPlaying>,
     pub toasts: Vec<Toast>,
     /// Full screen with the bottom bar hidden: only the lyrics.
     pub stage_only: bool,
-    /// Song search, queue, commands, tracks and settings all live here.
+    /// Song search, queue, commands, mixer and settings all live here.
     pub overlay: Option<Overlay>,
     pub devices: Vec<String>,
     /// Seek bar position while it is being dragged.
@@ -81,19 +86,18 @@ impl KaraokeApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: Launch) -> Self {
         crate::style::install(&cc.egui_ctx);
         let mut settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
-        if launch.library.is_some() {
-            settings.library = launch.library;
-        }
         if launch.soundfont.is_some() {
             settings.soundfont = launch.soundfont;
         }
         if launch.device.is_some() {
             settings.device = launch.device;
         }
+        let catalogue = eframe::storage_dir(crate::APP_ID).map(|d| d.join("songs.json"));
+        let (library, library_error) = Library::open(catalogue);
         let mut app = Self {
             settings,
             synth: Synth::new(),
-            library: Library::new(),
+            library,
             queue: VecDeque::new(),
             now: None,
             toasts: Vec::new(),
@@ -113,9 +117,28 @@ impl KaraokeApp {
             Some(sf) => app.synth.load_soundfont(sf),
             None => app.toast_error("ยังไม่มี SoundFont (.sf2) — เลือกได้ที่ ตั้งค่า (Ctrl+,)".into()),
         }
-        match app.settings.library.clone().filter(|p| p.is_dir()).or_else(library::find_default_root) {
-            Some(root) => app.library.open(root),
-            None => app.toast_error("ยังไม่ได้เลือกคลังเพลง NCN — เลือกได้ที่ ตั้งค่า (Ctrl+,)".into()),
+        if let Some(e) = library_error {
+            app.toast_error(format!("ฐานข้อมูลเพลงเสียหาย สร้างใหม่: {e}"));
+        }
+        // First run (or a library from an older version): seed the catalogue.
+        let seed = launch.library.or_else(|| {
+            let old = app.settings.library.take().filter(|p| p.is_dir());
+            if app.library.db.sources.is_empty() { old.or_else(library::find_default_root) } else { None }
+        });
+        if let Some(root) = seed {
+            app.add_source(root);
+        } else if app.library.db.sources.is_empty() {
+            app.toast_error("ยังไม่มีคลังเพลง — เพิ่มโฟลเดอร์ NCN หรือ .sfkar ได้ที่ ตั้งค่า (Ctrl+,)".into());
+        } else {
+            app.library.rescan();
+        }
+        // A .sfkar file given on the command line plays straight away.
+        if let Some(path) = app.pending_song.clone().map(PathBuf::from).filter(|p| p.is_file()) {
+            app.pending_song = None;
+            match library::loose_song(&path) {
+                Ok(song) => app.play_now(song),
+                Err(e) => app.toast_error(e),
+            }
         }
         app
     }
@@ -145,32 +168,36 @@ impl KaraokeApp {
         Some(now.timeline.tempo.bpm(self.synth.time()) * self.synth.speed())
     }
 
-    pub fn play_now(&mut self, header: SongHeader) {
-        let song = match self.library.load(&header.id) {
-            Ok(s) => s,
-            Err(e) => return self.toast_error(e),
+    pub fn play_now(&mut self, entry: Song) {
+        let loaded = library::load(&entry).and_then(|song| {
+            let timing = song.timing().map_err(|e| e.to_string())?;
+            self.synth.load_midi(&song.midi, &entry.id).map_err(|e| format!("{e:#}"))?;
+            Ok((song, timing))
+        });
+        let (song, timing) = match loaded {
+            Ok(x) => x,
+            Err(e) => return self.toast_error(format!("{}: {e}", entry.id)),
         };
-        let Some(midi) = song.midi_path.clone() else { return };
-        if let Err(e) = self.synth.load_song(&midi) {
-            return self.toast_error(format!("{}: {e:#}", header.id));
-        }
         // Every song starts in its own key and tempo with all parts on.
         self.synth.set_key(0);
         self.synth.set_speed(1.0);
-        self.synth.set_mutes(0);
+        self.synth.reset_channels();
         self.synth.play();
-        let timeline = Timeline::new(&song);
-        self.now = Some(NowPlaying { header, song, timeline, edges: HashMap::new(), finished: false });
+        if let Err(e) = self.library.record_play(&entry.uid) {
+            self.toast_error(format!("บันทึกประวัติเพลงไม่ได้: {e}"));
+        }
+        let timeline = Timeline::new(&song, &timing);
+        self.now = Some(NowPlaying { entry, song, timeline, edges: HashMap::new(), finished: false });
     }
 
     /// Add to the queue, or start right away when nothing is on.
-    pub fn enqueue(&mut self, header: SongHeader) {
+    pub fn enqueue(&mut self, entry: Song) {
         let idle = self.now.as_ref().is_none_or(|n| n.finished) || self.synth.state() == PlayState::Empty;
         if idle && self.queue.is_empty() {
-            self.play_now(header);
+            self.play_now(entry);
         } else {
-            self.toast(format!("เพิ่มในคิว: {}", header.title));
-            self.queue.push_back(header);
+            self.toast(format!("เพิ่มในคิว: {}", entry.title));
+            self.queue.push_back(entry);
         }
     }
 
@@ -186,9 +213,18 @@ impl KaraokeApp {
         }
     }
 
-    pub fn open_library(&mut self, root: PathBuf) {
-        self.settings.library = Some(root.clone());
-        self.library.open(root);
+    /// Add a folder of NCN or .sfkar songs to the catalogue.
+    pub fn add_source(&mut self, root: PathBuf) {
+        match self.library.add_source(root.clone()) {
+            Ok(kind) => {
+                let kind = match kind {
+                    solfege_songdb::SourceKind::Ncn => "NCN",
+                    solfege_songdb::SourceKind::Sfkar => ".sfkar",
+                };
+                self.toast(format!("เพิ่มคลังเพลง {kind}: {}", root.display()));
+            }
+            Err(e) => self.toast_error(e),
+        }
     }
 
     pub fn open_soundfont(&mut self, path: PathBuf) {
@@ -212,17 +248,19 @@ impl KaraokeApp {
 
     fn poll(&mut self, ctx: &egui::Context) {
         self.clock = ctx.input(|i| i.time);
-        if self.library.poll() {
-            match &self.library.error {
-                Some(e) => self.toast_error(format!("คลังเพลง: {e}")),
-                None => {
-                    self.toast(format!("คลังเพลง: {} เพลง", self.library.songs.len()));
-                    if let Some(id) = self.pending_song.take() {
-                        match self.library.songs.iter().find(|h| h.id.eq_ignore_ascii_case(&id)) {
-                            Some(h) => self.play_now(h.clone()),
-                            None => self.toast_error(format!("ไม่พบเพลง {id}")),
-                        }
-                    }
+        if let Some(report) = self.library.poll() {
+            self.toast(format!("คลังเพลง: {} เพลง", report.songs));
+            if let Some(e) = report.errors.first() {
+                let more = if report.errors.len() > 1 { format!(" (และอีก {} รายการ)", report.errors.len() - 1) } else { String::new() };
+                self.toast_error(format!("อ่านไม่ได้: {e}{more}"));
+            }
+            if let Err(e) = self.library.save() {
+                self.toast_error(format!("บันทึกฐานข้อมูลเพลงไม่ได้: {e}"));
+            }
+            if let Some(code) = self.pending_song.take() {
+                match self.library.find(&code).cloned() {
+                    Some(song) => self.play_now(song),
+                    None => self.toast_error(format!("ไม่พบเพลง {code}")),
                 }
             }
         }
@@ -273,8 +311,8 @@ impl KaraokeApp {
         if pressed(Key::Q) {
             return self.open(Page::Queue);
         }
-        if pressed(Key::T) {
-            return self.open(Page::Tracks);
+        if pressed(Key::M) {
+            return self.open(Page::Mixer);
         }
         if pressed(Key::Space) {
             self.synth.toggle();
@@ -327,5 +365,8 @@ impl eframe::App for KaraokeApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, SETTINGS_KEY, &self.settings);
+        if let Err(e) = self.library.save() {
+            self.toast_error(format!("บันทึกฐานข้อมูลเพลงไม่ได้: {e}"));
+        }
     }
 }

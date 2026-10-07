@@ -1,95 +1,145 @@
-//! The NCN song library: scanned on a background thread, searched as you type.
+//! The song catalogue as the app uses it: the `solfege_songdb` file in the
+//! app's data folder, rescanned on a background thread, searched as you
+//! type, saved when it changes.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use crossbeam_channel::Receiver;
-use solfege_ncnparser::{NcnLibrary, NcnSong, SongHeader};
-
-type Scan = Result<(NcnLibrary, Vec<SongHeader>), String>;
+use solfege_sfkar::KarSong;
+use solfege_songdb::{Scan, Song, SongDb, SourceKind};
 
 pub struct Library {
-    pub root: Option<PathBuf>,
-    lib: Option<Arc<NcnLibrary>>,
-    pub songs: Vec<SongHeader>,
-    /// Lower-cased "id title artist" per song, for search.
-    haystack: Vec<String>,
+    pub db: SongDb,
+    /// Catalogue file; `None` keeps everything in memory (tests).
+    path: Option<PathBuf>,
     job: Option<Receiver<Scan>>,
-    pub error: Option<String>,
+    /// The catalogue (sources / songs) changed since it was saved.
+    dirty: bool,
     pub query: String,
-    /// Indices into `songs` matching `query`.
+    /// Indices into `db.songs` matching `query`, best first.
     pub results: Vec<usize>,
 }
 
+/// What a finished rescan found.
+pub struct ScanReport {
+    pub songs: usize,
+    pub errors: Vec<String>,
+}
+
 impl Library {
-    pub fn new() -> Self {
-        Self {
-            root: None,
-            lib: None,
-            songs: Vec::new(),
-            haystack: Vec::new(),
-            job: None,
-            error: None,
-            query: String::new(),
-            results: Vec::new(),
-        }
+    /// Open the catalogue file (a broken one is reported and replaced).
+    pub fn open(path: Option<PathBuf>) -> (Self, Option<String>) {
+        let (db, error) = match path.as_deref().map(SongDb::load) {
+            Some(Ok(db)) => (db, None),
+            Some(Err(e)) => (SongDb::default(), Some(e.to_string())),
+            None => (SongDb::default(), None),
+        };
+        let mut lib = Self { db, path, job: None, dirty: false, query: String::new(), results: Vec::new() };
+        lib.search();
+        (lib, error)
     }
 
-    pub fn open(&mut self, root: PathBuf) {
+    pub fn add_source(&mut self, path: PathBuf) -> Result<SourceKind, String> {
+        let kind = self.db.add_source(path).map_err(|e| e.to_string())?;
+        self.dirty = true;
+        self.rescan();
+        Ok(kind)
+    }
+
+    pub fn remove_source(&mut self, index: usize) {
+        self.db.remove_source(index);
+        self.dirty = true;
+        self.search();
+    }
+
+    pub fn rescan(&mut self) {
         let (tx, rx) = crossbeam_channel::bounded(1);
-        let dir = root.clone();
+        let sources = self.db.sources.clone();
         std::thread::spawn(move || {
-            let r = NcnLibrary::open(&dir).map_err(|e| e.to_string()).map(|lib| {
-                // Only songs with all three files can be sung.
-                let headers = lib.headers().into_iter().filter(|h| lib.get(&h.id).is_some_and(|e| e.is_complete())).collect();
-                (lib, headers)
-            });
-            let _ = tx.send(r);
+            let _ = tx.send(solfege_songdb::scan(&sources));
         });
-        self.root = Some(root);
         self.job = Some(rx);
-        self.error = None;
     }
 
     pub fn scanning(&self) -> bool {
         self.job.is_some()
     }
 
-    /// Finish a background scan. Returns true when the song list changed.
-    pub fn poll(&mut self) -> bool {
-        let Some(job) = &self.job else { return false };
-        let Ok(result) = job.try_recv() else { return false };
+    /// Take a finished rescan.
+    pub fn poll(&mut self) -> Option<ScanReport> {
+        let scan = self.job.as_ref()?.try_recv().ok()?;
         self.job = None;
-        match result {
-            Ok((lib, songs)) => {
-                self.haystack = songs.iter().map(|h| format!("{} {} {}", h.id, h.title, h.artist).to_lowercase()).collect();
-                self.songs = songs;
-                self.lib = Some(Arc::new(lib));
-                self.error = None;
-            }
-            Err(e) => {
-                self.error = Some(e);
-                self.lib = None;
-                self.songs.clear();
-                self.haystack.clear();
-            }
-        }
+        let errors = scan.errors.clone();
+        self.db.apply(scan);
+        self.dirty = true;
         self.search();
-        true
+        Some(ScanReport { songs: self.db.songs.len(), errors })
     }
 
-    /// Recompute `results` for `query`: every word must appear somewhere
-    /// in the id, title or artist.
     pub fn search(&mut self) {
-        let q = self.query.to_lowercase();
-        let words: Vec<&str> = q.split_whitespace().collect();
-        self.results = (0..self.songs.len()).filter(|&i| words.iter().all(|w| self.haystack[i].contains(w))).collect();
+        self.results = self.db.search(&self.query);
     }
 
-    pub fn load(&self, id: &str) -> Result<NcnSong, String> {
-        let lib = self.lib.as_ref().ok_or("no library open")?;
-        lib.load(id).map_err(|e| e.to_string())
+    pub fn song(&self, index: usize) -> &Song {
+        &self.db.songs[index]
     }
+
+    pub fn find(&self, code: &str) -> Option<&Song> {
+        self.db.find(code).map(|i| &self.db.songs[i])
+    }
+
+    pub fn is_favorite(&self, uid: &str) -> bool {
+        self.db.stats(uid).favorite
+    }
+
+    pub fn toggle_favorite(&mut self, uid: &str) -> Result<bool, String> {
+        let on = self.db.toggle_favorite(uid);
+        if self.query.trim().is_empty() {
+            self.search();
+        }
+        self.save_stats().map(|_| on)
+    }
+
+    pub fn record_play(&mut self, uid: &str) -> Result<(), String> {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+        self.db.record_play(uid, now);
+        self.save_stats()
+    }
+
+    fn save_stats(&self) -> Result<(), String> {
+        match &self.path {
+            Some(p) => self.db.save_stats(p).map_err(|e| e.to_string()),
+            None => Ok(()),
+        }
+    }
+
+    /// Write the catalogue if anything changed.
+    pub fn save(&mut self) -> Result<(), String> {
+        let (Some(path), true) = (&self.path, self.dirty) else { return Ok(()) };
+        self.db.save(path).map_err(|e| e.to_string())?;
+        self.dirty = false;
+        Ok(())
+    }
+}
+
+pub fn load(song: &Song) -> Result<KarSong, String> {
+    solfege_songdb::load_song(song).map_err(|e| e.to_string())
+}
+
+/// A `.sfkar` file opened directly, outside the catalogue.
+pub fn loose_song(path: &Path) -> Result<Song, String> {
+    let meta = KarSong::read_meta(path).map_err(|e| e.to_string())?;
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let id = meta.id.filter(|id| !id.is_empty()).unwrap_or(stem);
+    Ok(Song {
+        uid: id.to_uppercase(),
+        id,
+        title: meta.title,
+        artist: meta.artist,
+        key: meta.key,
+        source: usize::MAX,
+        location: solfege_songdb::Location::Sfkar(path.to_path_buf()),
+    })
 }
 
 /// `shared/NCN` next to the working directory or any ancestor of the exe.
@@ -98,7 +148,7 @@ pub fn find_default_root() -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         candidates.extend(exe.ancestors().skip(1).map(|a| a.join("shared/NCN")));
     }
-    candidates.into_iter().find(|c| c.is_dir())
+    candidates.into_iter().find(|c| c.is_dir()).map(|c| c.canonicalize().unwrap_or(c))
 }
 
 /// A SoundFont in the usual places: `shared/`, next to the exe, or where
@@ -132,31 +182,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn scans_and_searches_the_sample_library() {
+    fn scans_searches_and_loads_the_sample_library() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN");
         if !root.is_dir() {
             eprintln!("skipped: {} missing", root.display());
             return;
         }
-        let mut lib = Library::new();
-        lib.open(root);
+        let (mut lib, err) = Library::open(None);
+        assert!(err.is_none());
+        assert_eq!(lib.add_source(root), Ok(SourceKind::Ncn));
         let t0 = std::time::Instant::now();
-        while lib.scanning() && t0.elapsed().as_secs() < 30 {
-            lib.poll();
+        let report = loop {
+            if let Some(r) = lib.poll() {
+                break r;
+            }
+            assert!(t0.elapsed().as_secs() < 30, "scan timed out");
             std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-        assert_eq!(lib.songs.len(), 139);
-        assert_eq!(lib.results.len(), 139);
+        };
+        assert_eq!(report.songs, 139);
+        assert!(report.errors.is_empty());
         lib.query = "ลำไย".into();
         lib.search();
-        assert!(lib.results.iter().any(|&i| lib.songs[i].id == "Z2608001"));
-        lib.query = "z2608001".into();
+        assert!(lib.results.iter().any(|&i| lib.song(i).id == "Z2608001"));
+        let song = load(lib.find("z2608001").unwrap()).unwrap();
+        assert!(!song.lyrics.lines.is_empty());
+        assert_eq!(lib.toggle_favorite("Z2608001"), Ok(true));
+        lib.query.clear();
         lib.search();
-        assert_eq!(lib.results.len(), 1);
-        lib.query = "ลำไย zzzz".into();
-        lib.search();
-        assert!(lib.results.is_empty());
-        let song = lib.load("Z2608001").unwrap();
-        assert!(!song.lines.is_empty());
+        assert_eq!(lib.song(lib.results[0]).uid, "Z2608001");
     }
 }

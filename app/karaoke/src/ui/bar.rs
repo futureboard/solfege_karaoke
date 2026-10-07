@@ -53,7 +53,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         ("full", icons::FULLSCREEN, None, false, "เต็มจอ (F)"),
         ("settings", icons::SETTINGS, Some(Page::Settings), false, "ตั้งค่า (Ctrl+,)"),
         ("commands", icons::COMMAND, Some(Page::Commands), false, "คำสั่งทั้งหมด (Ctrl+K)"),
-        ("tracks", icons::SLIDERS, Some(Page::Tracks), app.synth.mutes() != 0, "แทร็ก (T)"),
+        ("mixer", icons::MIXER, Some(Page::Mixer), app.synth.mixer_touched(), "มิกเซอร์ (M)"),
         ("queue", icons::QUEUE, Some(Page::Queue), false, "คิวเพลง (Q)"),
         ("search", icons::SEARCH, Some(Page::Songs), false, "ค้นหาเพลง (/)"),
     ];
@@ -213,7 +213,7 @@ fn readout(ui: &mut egui::Ui, id: &str, rect: Rect, label: &str, value: &str, hi
 
 fn key(app: &mut KaraokeApp, ui: &mut egui::Ui, rect: Rect) {
     let k = app.synth.key();
-    let song_key = app.now.as_ref().and_then(|n| n.song.key.as_deref());
+    let song_key = app.now.as_ref().and_then(|n| n.song.meta.key.as_deref());
     let value = match song_key.and_then(|s| transpose_key(s, k)) {
         Some(name) => name,
         None => signed(k),

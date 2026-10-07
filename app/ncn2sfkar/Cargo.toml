@@ -1,0 +1,9 @@
+[package]
+name = "ncn2sfkar"
+version = "0.1.0"
+edition = "2024"
+description = "Convert an NCN karaoke library into .sfkar files"
+
+[dependencies]
+solfege_ncnparser = { path = "../../crates/solfege_ncnparser" }
+solfege_sfkar = { path = "../../crates/solfege_sfkar" }

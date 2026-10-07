@@ -18,7 +18,7 @@ const KEYS: [(&str, &str); 12] = [
     ("F  F11", "เต็มจอ (Esc ออก)"),
     ("/", "ค้นหาเพลง"),
     ("Q", "คิวเพลง"),
-    ("T", "แทร็ก"),
+    ("M", "มิกเซอร์"),
     ("Ctrl K", "คำสั่งทั้งหมด"),
     ("Ctrl ,", "ตั้งค่า"),
     ("Tab", "สลับหน้าในแผงนี้"),
@@ -31,19 +31,42 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) -> Option<(Targ
         egui::Frame::new().inner_margin(Margin::symmetric(18, 14)).show(ui, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 
-            section(ui, icons::MUSIC, "คลังเพลง NCN", "โฟลเดอร์ที่มี Song, Lyrics และ Cursor");
-            path(ui, app.library.root.as_ref());
+            section(ui, icons::DATABASE, "คลังเพลง", "โฟลเดอร์ NCN (Song / Lyrics / Cursor) หรือโฟลเดอร์ไฟล์ .sfkar");
+            let mut remove = None;
+            for (i, src) in app.library.db.sources.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let kind = match src.kind {
+                        solfege_songdb::SourceKind::Ncn => "NCN",
+                        solfege_songdb::SourceKind::Sfkar => "SFKAR",
+                    };
+                    let count = app.library.db.songs.iter().filter(|s| s.source == i).count();
+                    ui.add_sized([46.0, 18.0], egui::Label::new(RichText::new(kind).size(10.0).color(DIM)));
+                    ui.add_sized([64.0, 18.0], egui::Label::new(RichText::new(format!("{count} เพลง")).size(12.0).color(DIM)));
+                    if ui.small_button(icons::REMOVE).on_hover_text("เอาออกจากคลัง (ไม่ลบไฟล์)").clicked() {
+                        remove = Some(i);
+                    }
+                    ui.add(egui::Label::new(RichText::new(src.path.display().to_string()).monospace().size(12.0).color(TEXT)).truncate());
+                });
+            }
+            if let Some(i) = remove {
+                app.library.remove_source(i);
+            }
+            if app.library.db.sources.is_empty() {
+                ui.label(RichText::new("ยังไม่มีโฟลเดอร์เพลง").color(DANGER));
+            }
             ui.horizontal(|ui| {
-                if ui.button(format!("{}  เปลี่ยน…", icons::FOLDER_OPEN)).clicked() {
-                    browse = Some((Target::Library, app.library.root.clone()));
+                if ui.button(format!("{}  เพิ่มโฟลเดอร์…", icons::FOLDER_PLUS)).clicked() {
+                    browse = Some((Target::Library, app.library.db.sources.last().map(|s| s.path.clone())));
                 }
-                if ui.add_enabled(app.library.root.is_some(), egui::Button::new(format!("{}  สแกนใหม่", icons::REFRESH))).clicked()
-                    && let Some(root) = app.library.root.clone()
-                {
-                    app.open_library(root);
+                let can_scan = !app.library.db.sources.is_empty() && !app.library.scanning();
+                if ui.add_enabled(can_scan, egui::Button::new(format!("{}  สแกนใหม่", icons::REFRESH))).clicked() {
+                    app.library.rescan();
                 }
                 if app.library.scanning() {
                     ui.spinner();
+                    ui.label(RichText::new("กำลังสแกน…").color(DIM));
+                } else {
+                    ui.label(RichText::new(format!("{} เพลงในฐานข้อมูล", app.library.db.songs.len())).size(12.0).color(DIM));
                 }
             });
             ui.add_space(14.0);
