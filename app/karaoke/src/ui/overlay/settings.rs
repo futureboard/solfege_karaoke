@@ -9,7 +9,7 @@ use crate::dialog::Pick;
 use crate::icons;
 use crate::style::{DANGER, DIM, TEXT};
 
-const KEYS: [(&str, &str); 17] = [
+const KEYS: [(&str, &str); 18] = [
     ("Space", "เล่น / พัก"),
     ("Shift Space", "หยุด (กลับไปต้นเพลง)"),
     ("Left  Right", "ถอย / ข้าม 5 วินาที"),
@@ -20,6 +20,7 @@ const KEYS: [(&str, &str); 17] = [
     ("/", "ค้นหาเพลง"),
     ("Q", "คิวเพลง"),
     ("M", "มิกเซอร์"),
+    ("E", "มิกเซอร์ (เอฟเฟกต์ 10 ช่องอยู่ด้านขวา)"),
     ("S", "เสียง / SoundFont"),
     ("V", "เปิด / ปิดเมโลดี้ร้องนำ"),
     ("L", "รูปแบบเนื้อร้อง"),

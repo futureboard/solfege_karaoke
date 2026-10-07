@@ -1,7 +1,8 @@
 //! The mixer: a panel of its own, docked above the bottom bar so the
 //! lyrics stay visible. Always 16 channel strips (channel 10 is the fader
 //! for the whole drum kit), then each piece of the kit, the reverb and
-//! chorus returns and the master. Strips are the engine's own (gain, pan,
+//! chorus returns and the master; on the right, the master effect chain
+//! (`ui::effects`). Strips are the engine's own (gain, pan,
 //! mute, solo, reverb and chorus sends) with live meters; pan and sends
 //! start from the song's own controllers (CC 10, 91, 93).
 
@@ -10,6 +11,7 @@ use solfege_synth::engine::mixer::{FxParams, StripParams};
 
 use crate::app::KaraokeApp;
 use crate::icons;
+use crate::ui::effects;
 use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, RAISED, SUNG, TEXT};
 use crate::synth::{DRUM_CH, KIT, MELODY_CH, StripId, kit_name, volume_db};
 
@@ -17,7 +19,7 @@ use crate::synth::{DRUM_CH, KIT, MELODY_CH, StripId, kit_name, volume_db};
 pub const HEIGHT: f32 = 364.0;
 const H: f32 = 298.0;
 const GAP: f32 = 3.0;
-const GROUP_GAP: f32 = 14.0;
+const GROUP_GAP: f32 = 10.0;
 const STRIPS: f32 = 16.0 + KIT as f32 + 3.0;
 /// Fader range in dB.
 const MIN_DB: f32 = -60.0;
@@ -101,8 +103,18 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             });
         });
         ui.add_space(6.0);
-        // Fit every strip across the window; scroll only when it is narrow.
-        let w = ((ui.available_width() - GROUP_GAP * 3.0) / STRIPS - GAP).clamp(40.0, 60.0);
+        // Strips on the left, the master effect chain in a sidebar on the right.
+        let strips_w = ui.available_width() - effects::SIDEBAR - GROUP_GAP;
+        let body = vec2(ui.available_width(), H + 20.0);
+        let (row, _) = ui.allocate_exact_size(body, Sense::hover());
+        let strips_rect = Rect::from_min_size(row.min, vec2(strips_w, body.y));
+        let side_rect = Rect::from_min_max(pos2(row.right() - effects::SIDEBAR, row.top()), row.max);
+        ui.painter().vline(side_rect.left() - GROUP_GAP / 2.0, row.y_range(), Stroke::new(1.0, LINE));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(side_rect), |ui| effects::sidebar(app, ui));
+        let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(strips_rect));
+        let ui = &mut ui;
+        // Fit every strip across; scroll only when it is narrow.
+        let w = ((strips_w - GROUP_GAP * 3.0) / STRIPS - GAP).clamp(35.0, 60.0);
         let width = STRIPS * (w + GAP) + GROUP_GAP * 3.0;
         egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
             let (area, _) = ui.allocate_exact_size(vec2(width.max(ui.available_width()), H + 20.0), Sense::hover());

@@ -37,9 +37,10 @@ pub enum Cmd {
     LyricMode,
     Clock,
     About,
+    Effects,
 }
 
-pub const ALL: [Cmd; 26] = [
+pub const ALL: [Cmd; 27] = [
     Cmd::PlayPause,
     Cmd::Restart,
     Cmd::Stop,
@@ -66,6 +67,7 @@ pub const ALL: [Cmd; 26] = [
     Cmd::LyricMode,
     Cmd::Clock,
     Cmd::About,
+    Cmd::Effects,
 ];
 
 impl Cmd {
@@ -95,6 +97,7 @@ impl Cmd {
             },
             Cmd::Clock => icons::CLOCK,
             Cmd::About => icons::INFO,
+            Cmd::Effects => icons::EFFECTS,
         }
     }
 
@@ -147,6 +150,7 @@ impl Cmd {
             Cmd::Clock if app.settings.show_clock => "ซ่อนนาฬิกา".into(),
             Cmd::Clock => "แสดงนาฬิกา".into(),
             Cmd::About => "เกี่ยวกับ Solfege Karaoke".into(),
+            Cmd::Effects => "เอฟเฟกต์รวม 10 ช่องในมิกเซอร์ (EQ, คอมเพรสเซอร์, ดีเลย์, รีเวิร์บ…)".into(),
         }
     }
 
@@ -171,6 +175,7 @@ impl Cmd {
             Cmd::LyricMode => "lyrics mode scroll classic wipe",
             Cmd::Clock => "clock time",
             Cmd::About => "about version license credits",
+            Cmd::Effects => "effects fx insert eq compressor limiter delay reverb chorus drive filter width",
         }
     }
 
@@ -190,6 +195,7 @@ impl Cmd {
             Cmd::Sounds => &["S"],
             Cmd::Melody => &["V"],
             Cmd::LyricMode => &["L"],
+            Cmd::Effects => &["E"],
             Cmd::Settings => &["Ctrl", ","],
             _ => &[],
         }
@@ -319,6 +325,10 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
             Outcome::Close
         }
         Cmd::About => Outcome::Goto(Page::About),
+        Cmd::Effects => {
+            app.mixer_open = true;
+            Outcome::Close
+        }
         Cmd::Sounds => {
             app.sound = Some(crate::ui::sound::SoundPanel::new());
             Outcome::Close

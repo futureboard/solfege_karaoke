@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use solfege_synth::audio::{self, AudioOut};
+use solfege_synth::engine::inserts::{INSERT_SLOTS, Insert, InsertParams};
 use solfege_synth::engine::mixer::{DRUM_STRIP_BASE, FxParams, GM_GROUP_NAMES, NoteGroups, StripParams};
 use solfege_synth::engine::{Command, Engine, Garbage, NO_PRESET, PlayState, Shared, Slot, SlotParams, load_peak};
 use solfege_synth::instrument::{self, Instrument, db_to_gain};
@@ -28,10 +29,12 @@ pub const KEY_RANGE: i32 = 12;
 pub const MAX_FONTS: usize = 8;
 /// MIDI channel 10, the drum kit.
 pub const DRUM_CH: usize = 9;
+/// Sample rate of the silent engine used when there is no audio device.
+const SILENT_RATE: f32 = 48_000.0;
 /// MIDI channel 9 (index 8): the guide melody of NCN karaoke songs.
 pub const MELODY_CH: usize = 8;
 /// Drum kit pieces with their own mixer strip (GM note groups).
-pub const KIT: usize = 6;
+pub const KIT: usize = 7;
 
 pub fn kit_name(group: usize) -> &'static str {
     GM_GROUP_NAMES[group]
@@ -176,6 +179,10 @@ pub struct Synth {
     mixer: Mixer,
     /// The guide melody is muted, whatever its mixer strip says.
     melody_off: bool,
+    /// Master effect slots, in processing order.
+    inserts: [Option<InsertParams>; INSERT_SLOTS],
+    /// Sample rate of the running engine (effects are built for it).
+    sample_rate: f32,
 }
 
 impl Synth {
@@ -206,6 +213,8 @@ impl Synth {
             volume: 0.8,
             mixer: Mixer::default(),
             melody_off: false,
+            inserts: [None; INSERT_SLOTS],
+            sample_rate: 48_000.0,
         }
     }
 
@@ -223,12 +232,14 @@ impl Synth {
         match audio::start(device, None, self.rx.clone(), self.garbage_tx.clone(), self.shared.clone()) {
             Ok(a) => {
                 self.output_info = format!("{} · {} Hz · buffer {}", a.device, a.sample_rate, a.buffer);
+                self.sample_rate = a.sample_rate as f32;
                 self.output_error = None;
                 self.output = Output::Audio(a);
             }
             Err(e) => {
                 self.output_error = Some(format!("{e:#}"));
                 self.output_info = "no audio output".into();
+                self.sample_rate = SILENT_RATE;
                 self.output = Output::Silent(spawn_silent(self.rx.clone(), self.garbage_tx.clone(), self.shared.clone()));
             }
         }
@@ -239,6 +250,9 @@ impl Synth {
     fn replay(&mut self) {
         self.send(Command::MasterGain(db_to_gain(volume_db(self.volume))));
         self.send(Command::SetFx(self.mixer.fx));
+        for slot in 0..INSERT_SLOTS {
+            self.send_insert(slot);
+        }
         if let Some(song) = &self.song {
             self.send(Command::LoadSong(song.clone()));
             self.send(Command::SetSpeed(self.speed));
@@ -578,6 +592,38 @@ impl Synth {
         self.drum_lock
     }
 
+    /// Master effect slots.
+    pub fn inserts(&self) -> &[Option<InsertParams>; INSERT_SLOTS] {
+        &self.inserts
+    }
+
+    /// Put an effect in a slot, change its values or bypass, or empty the
+    /// slot (`None`). A new kind of effect is built here, off the audio
+    /// thread; a change of values only sends the values.
+    pub fn set_insert(&mut self, slot: usize, params: Option<InsertParams>) {
+        let Some(old) = self.inserts.get(slot).copied() else { return };
+        let params = params.map(InsertParams::clamped);
+        self.inserts[slot] = params;
+        match (old, params) {
+            (Some(o), Some(n)) if o.kind == n.kind => self.send(Command::SetInsertParams { slot, params: n }),
+            _ => self.send_insert(slot),
+        }
+    }
+
+    /// Swap two slots (the chain runs in slot order).
+    pub fn swap_inserts(&mut self, a: usize, b: usize) {
+        if a < INSERT_SLOTS && b < INSERT_SLOTS && a != b {
+            self.inserts.swap(a, b);
+            self.send_insert(a);
+            self.send_insert(b);
+        }
+    }
+
+    fn send_insert(&self, slot: usize) {
+        let insert = self.inserts[slot].map(|p| Box::new(Insert::new(p, self.sample_rate)));
+        self.send(Command::SetInsert { slot, insert });
+    }
+
     /// The guide melody (channel 9) is muted.
     pub fn melody_off(&self) -> bool {
         self.melody_off
@@ -911,7 +957,7 @@ pub fn volume_db(v: f32) -> f32 {
 }
 
 fn spawn_silent(rx: Receiver<Command>, garbage: Sender<Garbage>, shared: Arc<Shared>) -> Arc<AtomicBool> {
-    const SR: f32 = 48_000.0;
+    const SR: f32 = SILENT_RATE;
     const BLOCK: usize = 480;
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
@@ -1131,6 +1177,58 @@ mod tests {
         assert_eq!(s.routing()[0], 0);
         assert_eq!(s.rack.len(), 2);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn master_effect_slots_process_the_output() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608001.mid");
+        let Some(sf2) = crate::library::find_soundfont().filter(|_| midi.is_file()) else {
+            eprintln!("skipped: needs a .sf2 and the shared/NCN sample library");
+            return;
+        };
+        use solfege_synth::engine::inserts::InsertKind;
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.add_font(sf2).unwrap();
+        let t0 = Instant::now();
+        while s.loading_soundfont() && t0.elapsed() < Duration::from_secs(60) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
+        s.play();
+        s.seek(30.0);
+        let loudest = |s: &mut Synth, ms: u64| {
+            let mut peak = 0.0f32;
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_millis(ms) {
+                s.poll();
+                let (l, r) = s.master_peak();
+                peak = peak.max(l).max(r);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            peak
+        };
+        // A limiter at -12 dB in the last slot caps everything before it.
+        let mut lim = InsertParams::new(InsertKind::Limiter);
+        lim.values[1] = -12.0;
+        s.set_insert(9, Some(lim));
+        s.set_insert(0, Some(InsertParams::new(InsertKind::Eq)));
+        loudest(&mut s, 300);
+        let peak = loudest(&mut s, 1500);
+        assert!(peak > 0.01, "music still plays: {peak}");
+        assert!(peak <= 10f32.powf(-12.0 / 20.0) + 0.01, "held at the ceiling: {peak}");
+        // Moving it first keeps it working; bypass lets the song through.
+        s.swap_inserts(9, 1);
+        assert!(s.inserts()[9].is_none() && s.inserts()[1].is_some_and(|p| p.kind == InsertKind::Limiter));
+        s.set_insert(1, Some(InsertParams { bypass: true, ..lim }));
+        assert!(s.inserts()[1].unwrap().bypass);
+        s.set_insert(1, None);
+        assert!(s.inserts()[1].is_none());
+        // Cowbell has a strip of its own, apart from the other percussion.
+        assert_eq!(piece_keys(6), 1u128 << 56);
+        assert_eq!(piece_keys(5) & (1u128 << 56), 0);
+        assert_eq!(kit_name(6), "Cowbell");
     }
 
     #[test]

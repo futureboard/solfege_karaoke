@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use solfege_synth::engine::inserts::{INSERT_SLOTS, InsertParams};
 use solfege_synth::engine::mixer::FxParams;
 
 pub const FILE_NAME: &str = "config.json";
@@ -37,6 +38,8 @@ pub struct Settings {
     pub pieces: Vec<SavedPiece>,
     /// Reverb and chorus (return levels and their parameters).
     pub fx: FxParams,
+    /// Master effect slots, in processing order (`null` = empty).
+    pub inserts: [Option<InsertParams>; INSERT_SLOTS],
     pub device: Option<String>,
     pub volume: f32,
     /// Lyric size relative to the stage height.
@@ -90,6 +93,7 @@ impl Default for Settings {
             instruments: Vec::new(),
             pieces: Vec::new(),
             fx: FxParams::default(),
+            inserts: [None; INSERT_SLOTS],
             device: None,
             volume: 0.8,
             lyric_scale: 1.0,
@@ -115,7 +119,7 @@ pub struct SavedInstrument {
 /// A kit piece's own kit, saved by font file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SavedPiece {
-    /// 0 kick, 1 snare, 2 hi-hat, 3 toms, 4 cymbals, 5 percussion.
+    /// 0 kick, 1 snare, 2 hi-hat, 3 toms, 4 cymbals, 5 percussion, 6 cowbell.
     pub piece: usize,
     pub font: PathBuf,
     pub bank: u16,

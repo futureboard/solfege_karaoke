@@ -127,6 +127,7 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     if toggle(ui, app.mixer_open, icons::MIXER, "มิกเซอร์", "M") {
         app.mixer_open = !app.mixer_open;
     }
+
     if item(ui, icons::FILE_MUSIC, "เสียงและ SoundFont", "S") {
         app.open_sound();
     }

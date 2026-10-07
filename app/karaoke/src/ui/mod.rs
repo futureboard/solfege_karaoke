@@ -4,6 +4,7 @@
 //! context menus (`menu`).
 
 mod bar;
+pub mod effects;
 pub mod menu;
 mod mixer;
 pub mod overlay;
@@ -34,6 +35,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui));
     overlay::show(app, &ctx);
     sound::show(app, &ctx);
+    effects::editor(app, &ctx);
     toasts(app, &ctx);
     let open = ctx.any_popup_open();
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(POPUP_OPEN), open));

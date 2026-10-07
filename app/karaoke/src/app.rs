@@ -62,6 +62,8 @@ pub struct KaraokeApp {
     pub overlay: Option<Overlay>,
     /// The mixer panel, docked above the bottom bar.
     pub mixer_open: bool,
+    /// Effect slot whose editor is open (popup over the stage).
+    pub effect_editor: Option<usize>,
     /// The sound settings window (SoundFonts, channels, instruments, drums).
     pub sound: Option<SoundPanel>,
     pub devices: Vec<String>,
@@ -100,6 +102,7 @@ impl KaraokeApp {
             fullscreen: false,
             overlay: None,
             mixer_open: false,
+            effect_editor: None,
             sound: None,
             devices: Vec::new(),
             renderer: cc.wgpu_render_state.as_ref().map_or_else(
@@ -140,6 +143,9 @@ impl KaraokeApp {
         app.synth.set_drum_lock(app.settings.drum_lock);
         app.synth.set_fx(app.settings.fx);
         app.synth.set_melody_off(app.settings.melody_off);
+        for (slot, params) in app.settings.inserts.into_iter().enumerate() {
+            app.synth.set_insert(slot, params);
+        }
         for saved in app.settings.instruments.clone() {
             if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
                 let sound = InstrumentSound { font, bank: saved.bank, program: saved.program };
@@ -356,7 +362,7 @@ impl KaraokeApp {
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
         // The overlay handles its own keys.
-        if self.overlay.is_some() || self.sound.is_some() || ctx.egui_wants_keyboard_input() {
+        if self.overlay.is_some() || self.sound.is_some() || self.effect_editor.is_some() || ctx.egui_wants_keyboard_input() {
             return;
         }
         use egui::{Key, Modifiers};
@@ -380,6 +386,10 @@ impl KaraokeApp {
         }
         if pressed(Key::S) {
             return self.open_sound();
+        }
+        if pressed(Key::E) {
+            // The effect chain lives in the mixer.
+            self.mixer_open = !self.mixer_open;
         }
         if pressed(Key::V) {
             self.toggle_melody();
@@ -472,6 +482,7 @@ impl eframe::App for KaraokeApp {
         self.settings.routing = self.synth.routing();
         self.settings.drum_lock = self.synth.drum_lock();
         self.settings.fx = self.synth.mixer().fx;
+        self.settings.inserts = *self.synth.inserts();
         let paths = self.synth.font_paths();
         self.settings.instruments = self
             .synth

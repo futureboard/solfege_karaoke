@@ -243,6 +243,6 @@ fn tui_renders_mixer() {
     for needle in ["FX Reverb", "FX Chorus", "MASTER"] {
         assert!(text.contains(needle), "missing {needle}");
     }
-    // 15 channel strips + 6 drum groups for an Omni slot.
-    assert_eq!(app.visible_strips(0).len(), 15 + 6);
+    // 15 channel strips + 7 drum groups (cowbell has its own) for an Omni slot.
+    assert_eq!(app.visible_strips(0).len(), 15 + 7);
 }

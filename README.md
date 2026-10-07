@@ -35,15 +35,15 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | | |
 |---|---|
 | ![Song search](docs/screenshots/songs.png) | ![Mixer](docs/screenshots/mixer.png) |
-| Song search overlay (`/`) | Mixer panel (`M`) |
+| Song search overlay (`/`) | Mixer panel (`M`) with the effect chain on the right |
 | ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Sounds per instrument](docs/screenshots/instruments.png) |
 | Sound settings window (`S`): SoundFont per channel | A sound for any GM instrument |
 | ![Count-in](docs/screenshots/count-in.png) | ![Context menu](docs/screenshots/context-menu.png) |
 | Four-beat count-in after a long rest | Right-click menu on the stage |
 | ![Classic lyrics](docs/screenshots/classic.png) | ![About](docs/screenshots/about.png) |
 | Classic layout: two lines that take turns (`L`) | About page |
-| ![A kit per drum piece](docs/screenshots/drum-pieces.png) | |
-| Kick, snare, ... each from its own SoundFont and kit | |
+| ![A kit per drum piece](docs/screenshots/drum-pieces.png) | ![Effect editor](docs/screenshots/effects.png) |
+| Kick, snare, ... each from its own SoundFont and kit | Effect slot editor (popup over the mixer) |
 
 ## What is in here
 
@@ -93,6 +93,11 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   double-click returns to the song's value. The reverb (room, damping,
   width) and chorus (rate, depth, delay) are adjustable on their return
   strips and remembered between runs.
+- **Master effect chain.** Ten effect slots in a sidebar on the right of
+  the mixer, run in order on the main output: EQ, compressor, limiter,
+  delay, reverb, chorus, drive, filter and stereo width. Click a slot to
+  edit it in a popup; each can be bypassed, moved or cleared (right
+  click), and the chain is saved in `config.json`.
 - **Sound settings window.** SoundFonts, channels, instruments and the
   drum kit have their own window (`S` or the bar button), separate from
   the command overlay.
@@ -101,8 +106,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   or choose the sound of any of the 128 General MIDI instruments, from
   any font, for whichever channel plays it.
 - **Drum kit lock.** Lock channel 10 to one kit; songs cannot change it.
-- **A kit per drum piece.** Kick, snare, hi-hat, toms, cymbals and
-  percussion can each play from a kit of their own, from any SoundFont;
+- **A kit per drum piece.** Kick, snare, hi-hat, toms, cymbals, cowbell
+  and percussion can each play from a kit of their own, from any SoundFont;
   the pieces left alone play from channel 10's kit. Their mixer strips
   work the same either way.
 
