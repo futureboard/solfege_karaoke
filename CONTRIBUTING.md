@@ -68,12 +68,12 @@ cargo clippy --workspace --all-targets
 
 | Path | Notes |
 |---|---|
-| `app/karaoke` | The player. `synth.rs` drives the engine, `timeline.rs` times the lyrics, `library.rs` wraps the catalogue, `ui/` draws the stage, the bottom bar and the overlay pages. |
+| `app/karaoke` | The player. `synth.rs` drives the engine, `timeline.rs` times the lyrics, `library.rs` wraps the catalogue, `config.rs` reads and writes `config.json`, `dialog.rs` opens the native file dialogs, `ui/` draws the stage, the bottom bar and the overlay pages. |
 | `app/ncn2sfkar` | Converter command line tool. |
 | `app/liveinst` | The terminal instrument rack and its web UI (`webui/`, React + Vite). |
 | `crates/solfege_ncnparser` | NCN reader. Keep it dependency-free. |
 | `crates/solfege_sfkar` | `.sfkar` reader / writer. Format changes need a version bump and a note in the crate docs. |
-| `crates/solfege_songdb` | Song catalogue. |
+| `crates/solfege_songdb` | Song catalogue (SQLite, `songs.dat`). |
 | `crates/solfege_synth` | Synth engine, SMF player, audio output. |
 
 ## Commits and pull requests

@@ -39,7 +39,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | [`app/liveinst`](app/liveinst) | `simpletui`, a terminal instrument rack (WAV / SFZ / SF2) with MIDI I/O and a web UI |
 | [`crates/solfege_ncnparser`](crates/solfege_ncnparser) | Parser for NCN libraries (`Song/*.mid`, `Lyrics/*.lyr`, `Cursor/*.cur`) |
 | [`crates/solfege_sfkar`](crates/solfege_sfkar) | The `.sfkar` song file: read, write, convert from NCN |
-| [`crates/solfege_songdb`](crates/solfege_songdb) | Song catalogue over NCN and `.sfkar` folders, with search, favourites and play history |
+| [`crates/solfege_songdb`](crates/solfege_songdb) | Song catalogue (SQLite) over NCN and `.sfkar` folders, with search, favourites and play history |
 | [`crates/solfege_synth`](crates/solfege_synth) | Sample-based synth engine (WAV, SFZ, SF2), MIDI file player and audio output |
 
 ## The karaoke player
@@ -53,8 +53,12 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   panel over the stage. Type to filter, arrows to move, Enter to
   act.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
-  one searchable list, with favourites and play counts; songs can be
-  queued.
+  one searchable list, with favourites and play counts, kept in an SQLite
+  database (`songs.dat`); songs can be queued.
+- **Native file dialogs.** SoundFonts and song folders are picked with
+  the system's own dialog: the common item dialog on Windows, NSOpenPanel
+  on macOS and the XDG desktop portal on Linux (the desktop's file chooser
+  on Wayland or X11, `zenity` when no portal runs).
 - **Key and tempo.** Change key by semitones (the drums stay put) and
   tempo from 50 % to 150 %; BPM and key are shown live.
 - **Mixer.** Its own panel, docked under the lyrics: all 16 MIDI channels
@@ -92,10 +96,12 @@ In the overlay: `Enter` reserves a song, `Shift Enter` sings it now,
 
 ### Requirements
 
-- Rust **1.95** or newer (edition 2024).
+- Rust **1.95** or newer (edition 2024), and a C compiler (SQLite is
+  built from source by `rusqlite`).
 - **Linux:** ALSA headers and `pkg-config` to build
   (`sudo apt install libasound2-dev pkg-config` on Debian / Ubuntu), and
-  OpenGL plus `libxkbcommon-x11` to run.
+  OpenGL plus `libxkbcommon-x11` to run. File dialogs need
+  `xdg-desktop-portal` (any desktop has it) or, without one, `zenity`.
 - **Windows:** nothing extra (audio goes through WASAPI).
 - macOS is untested.
 
@@ -127,9 +133,18 @@ cargo run --release -p karaoke -- -s gm.sf2 -s piano.sfz -L /path/to/NCN
 cargo run --release -p karaoke -- --help
 ```
 
-The song catalogue and settings are kept in the app's data folder
+Settings and the song catalogue are kept in the app's data folder
 (`~/.local/share/solfege-karaoke` on Linux,
-`%APPDATA%\solfege-karaoke\data` on Windows).
+`%APPDATA%\solfege-karaoke\data` on Windows; both paths are also shown
+under Settings):
+
+| File | What it holds |
+|---|---|
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size and offset. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
+
+Settings and catalogues of older versions (eframe's `app.ron`,
+`songs.json`) are imported on the first start.
 
 ### Convert NCN to `.sfkar`
 

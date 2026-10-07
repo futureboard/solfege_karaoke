@@ -2,7 +2,6 @@
 //! under it, and everything else opens as an overlay on top.
 
 mod bar;
-pub mod browse;
 mod mixer;
 pub mod overlay;
 pub mod sound;

@@ -4,79 +4,23 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 use eframe::egui;
-use serde::{Deserialize, Serialize};
 use solfege_sfkar::KarSong;
 use solfege_songdb::Song;
 use solfege_synth::engine::PlayState;
-use solfege_synth::engine::mixer::FxParams;
 
+use crate::config::{self, ConfigFile, SavedInstrument, Settings};
+use crate::dialog::{Dialogs, Pick};
 use crate::library::{self, Library};
 use crate::synth::{InstrumentSound, Synth, SynthEvent};
 use crate::timeline::Timeline;
 use crate::ui::overlay::{Overlay, Page};
 use crate::ui::sound::SoundPanel;
 
-const SETTINGS_KEY: &str = "settings";
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    /// Library folder of older versions; moved into the song catalogue.
-    #[serde(skip_serializing)]
-    pub library: Option<PathBuf>,
-    /// Single SoundFont of older versions; moved into `soundfonts`.
-    #[serde(skip_serializing)]
-    pub soundfont: Option<PathBuf>,
-    /// The SoundFont rack, first one first.
-    pub soundfonts: Vec<PathBuf>,
-    /// Font index per MIDI channel.
-    pub routing: [usize; 16],
-    /// Drum kit locked on channel 10, as (bank, program).
-    pub drum_lock: Option<(u16, u8)>,
-    /// Sounds chosen per GM instrument.
-    pub instruments: Vec<SavedInstrument>,
-    /// Reverb and chorus (return levels and their parameters).
-    pub fx: FxParams,
-    pub device: Option<String>,
-    pub volume: f32,
-    /// Lyric size relative to the stage height.
-    pub lyric_scale: f32,
-    /// Shift the lyrics against the music (positive = lyrics later).
-    pub lyric_offset_ms: i32,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            library: None,
-            soundfont: None,
-            soundfonts: Vec::new(),
-            routing: [0; 16],
-            drum_lock: None,
-            instruments: Vec::new(),
-            fx: FxParams::default(),
-            device: None,
-            volume: 0.8,
-            lyric_scale: 1.0,
-            lyric_offset_ms: 0,
-        }
-    }
-}
-
-/// A GM instrument's sound, saved by font file so it survives the rack
-/// being reordered.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SavedInstrument {
-    /// GM program 0..127.
-    pub instrument: u8,
-    pub font: PathBuf,
-    pub bank: u16,
-    pub program: u8,
-}
-
 /// Command-line choices; they win over saved settings for this run.
 #[derive(Default)]
 pub struct Launch {
+    /// Settings file instead of `config.json` in the data folder.
+    pub config: Option<PathBuf>,
     pub library: Option<PathBuf>,
     /// SoundFonts for this run (repeatable option), replacing the saved rack.
     pub soundfonts: Vec<PathBuf>,
@@ -104,6 +48,9 @@ pub struct Toast {
 
 pub struct KaraokeApp {
     pub settings: Settings,
+    config: ConfigFile,
+    /// Native file / folder pickers.
+    pub dialogs: Dialogs,
     pub synth: Synth,
     pub library: Library,
     pub queue: VecDeque<Song>,
@@ -127,7 +74,10 @@ pub struct KaraokeApp {
 impl KaraokeApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: Launch) -> Self {
         crate::style::install(&cc.egui_ctx);
-        let mut settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
+        let data = eframe::storage_dir(crate::APP_ID);
+        let mut config = ConfigFile::new(launch.config.clone().or_else(|| data.as_ref().map(|d| d.join(config::FILE_NAME))));
+        let legacy = cc.storage.and_then(|s| eframe::get_value::<Settings>(s, config::LEGACY_KEY));
+        let (mut settings, config_error) = config.load(legacy);
         if !launch.soundfonts.is_empty() {
             settings.soundfonts = launch.soundfonts.clone();
             settings.routing = [0; 16];
@@ -135,10 +85,11 @@ impl KaraokeApp {
         if launch.device.is_some() {
             settings.device = launch.device;
         }
-        let catalogue = eframe::storage_dir(crate::APP_ID).map(|d| d.join("songs.json"));
-        let (library, library_error) = Library::open(catalogue);
+        let (library, library_error) = Library::open(data.as_deref());
         let mut app = Self {
             settings,
+            config,
+            dialogs: Dialogs::default(),
             synth: Synth::new(),
             library,
             queue: VecDeque::new(),
@@ -153,6 +104,9 @@ impl KaraokeApp {
             pending_song: launch.song,
             clock: 0.0,
         };
+        if let Some(e) = config_error {
+            app.toast_error(format!("อ่านไฟล์ตั้งค่าไม่ได้ ใช้ค่าเริ่มต้น (เก็บไฟล์เดิมเป็น .bak): {e}"));
+        }
         app.synth.set_volume(app.settings.volume);
         app.synth.start_output(app.settings.device.as_deref());
         if let Some(e) = app.synth.output_error.clone() {
@@ -317,6 +271,14 @@ impl KaraokeApp {
 
     fn poll(&mut self, ctx: &egui::Context) {
         self.clock = ctx.input(|i| i.time);
+        if let Some((pick, paths)) = self.dialogs.poll() {
+            for path in paths {
+                match pick {
+                    Pick::SoundFonts => self.add_soundfont(path),
+                    Pick::SongFolder => self.add_source(path),
+                }
+            }
+        }
         if let Some(report) = self.library.poll() {
             self.toast(format!("คลังเพลง: {} เพลง", report.songs));
             if let Some(e) = report.errors.first() {
@@ -428,6 +390,11 @@ impl KaraokeApp {
         }
     }
 
+    /// The settings file (`None` when there is no data folder).
+    pub fn config_path(&self) -> Option<&std::path::Path> {
+        self.config.path.as_deref()
+    }
+
     pub fn set_stage_only(&mut self, ctx: &egui::Context, on: bool) {
         self.stage_only = on;
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(on));
@@ -441,11 +408,13 @@ impl eframe::App for KaraokeApp {
         self.settings.volume = self.synth.volume();
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         crate::ui::show(self, ui);
+        // Dialogs asked for this frame open over the window.
+        self.dialogs.launch(frame, ui.ctx());
     }
 
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+    fn save(&mut self, _storage: &mut dyn eframe::Storage) {
         // The SoundFont rack lives in the synth; copy it out to save.
         self.settings.soundfonts = self.synth.font_paths();
         self.settings.routing = self.synth.routing();
@@ -460,7 +429,9 @@ impl eframe::App for KaraokeApp {
                 Some(SavedInstrument { instrument, font: paths.get(s.font)?.clone(), bank: s.bank, program: s.program })
             })
             .collect();
-        eframe::set_value(storage, SETTINGS_KEY, &self.settings);
+        if let Err(e) = self.config.save(&self.settings) {
+            self.toast_error(format!("บันทึกการตั้งค่าไม่ได้: {e}"));
+        }
         if let Err(e) = self.library.save() {
             self.toast_error(format!("บันทึกฐานข้อมูลเพลงไม่ได้: {e}"));
         }

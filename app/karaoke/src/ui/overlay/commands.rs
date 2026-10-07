@@ -3,7 +3,8 @@
 use eframe::egui;
 use solfege_synth::engine::PlayState;
 
-use super::{Outcome, Overlay, Page, Target};
+use super::{Outcome, Page};
+use crate::dialog::Pick;
 use crate::app::KaraokeApp;
 use crate::icons;
 use crate::music::{signed, transpose_key};
@@ -185,7 +186,7 @@ impl Cmd {
     }
 }
 
-pub fn run(app: &mut KaraokeApp, ov: &mut Overlay, cmd: Cmd, ctx: &egui::Context) -> Outcome {
+pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
     match cmd {
         Cmd::PlayPause => {
             if let Some(n) = &mut app.now {
@@ -264,15 +265,16 @@ pub fn run(app: &mut KaraokeApp, ov: &mut Overlay, cmd: Cmd, ctx: &egui::Context
         Cmd::Settings => Outcome::Goto(Page::Settings),
         Cmd::OpenLibrary => {
             let start = app.library.db.sources.last().map(|s| s.path.clone());
-            ov.browse(Target::Library, start);
-            Outcome::Stay
+            app.dialogs.ask(Pick::SongFolder, start);
+            Outcome::Goto(Page::Settings)
         }
         Cmd::Rescan => {
             app.library.rescan();
             Outcome::Close
         }
         Cmd::ChooseSoundFont => {
-            app.sound = Some(crate::ui::sound::SoundPanel::adding(app.synth.fonts().last().map(|f| f.path.clone())));
+            app.sound = Some(crate::ui::sound::SoundPanel::new());
+            app.dialogs.ask(Pick::SoundFonts, app.synth.fonts().last().map(|f| f.path.clone()));
             Outcome::Close
         }
         Cmd::Sounds => {
