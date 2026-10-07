@@ -36,7 +36,9 @@ USAGE:
 OPTIONS:
     -L, --library <DIR>     add a song folder: an NCN library (Song, Lyrics,
                             Cursor) or a folder of .sfkar files
-    -s, --soundfont <FILE>  SoundFont (.sf2) for the backing tracks
+    -s, --soundfont <FILE>  SoundFont (.sf2) or SFZ for the backing tracks;
+                            repeat for a rack (the first plays every channel
+                            until routed otherwise)
     -d, --device <NAME>     audio output device (substring match)
     -l, --list              list audio output devices, then exit
     -h, --help              show this help
@@ -65,7 +67,7 @@ fn parse_args() -> Result<Option<Launch>> {
                 return Ok(None);
             }
             "-L" | "--library" => launch.library = Some(PathBuf::from(value("--library")?)),
-            "-s" | "--soundfont" => launch.soundfont = Some(PathBuf::from(value("--soundfont")?)),
+            "-s" | "--soundfont" => launch.soundfonts.push(PathBuf::from(value("--soundfont")?)),
             "-d" | "--device" => launch.device = Some(value("--device")?),
             s if s.starts_with('-') => bail!("unknown option {s}\n\n{USAGE}"),
             _ => launch.song = Some(arg),

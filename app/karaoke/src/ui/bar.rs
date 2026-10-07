@@ -98,8 +98,8 @@ fn status(app: &KaraokeApp) -> Option<(&'static str, Color32, String)> {
     if let Some(e) = &app.synth.output_error {
         return Some((icons::ALERT, DANGER, format!("ไม่มีอุปกรณ์เสียง — เนื้อร้องยังเดินตามเพลง\n{e}")));
     }
-    if app.synth.soundfont_name().is_none() {
-        return Some((icons::ALERT, DANGER, "ยังไม่มี SoundFont — เลือกได้ที่ ตั้งค่า".into()));
+    if !app.synth.has_font() {
+        return Some((icons::ALERT, DANGER, "ยังไม่มี SoundFont — เพิ่มได้ที่แท็บ เสียง (S)".into()));
     }
     None
 }

@@ -22,7 +22,13 @@ pub struct Settings {
     /// Library folder of older versions; moved into the song catalogue.
     #[serde(skip_serializing)]
     pub library: Option<PathBuf>,
+    /// Single SoundFont of older versions; moved into `soundfonts`.
+    #[serde(skip_serializing)]
     pub soundfont: Option<PathBuf>,
+    /// The SoundFont rack, first one first.
+    pub soundfonts: Vec<PathBuf>,
+    /// Font index per MIDI channel.
+    pub routing: [usize; 16],
     pub device: Option<String>,
     pub volume: f32,
     /// Lyric size relative to the stage height.
@@ -33,7 +39,16 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { library: None, soundfont: None, device: None, volume: 0.8, lyric_scale: 1.0, lyric_offset_ms: 0 }
+        Self {
+            library: None,
+            soundfont: None,
+            soundfonts: Vec::new(),
+            routing: [0; 16],
+            device: None,
+            volume: 0.8,
+            lyric_scale: 1.0,
+            lyric_offset_ms: 0,
+        }
     }
 }
 
@@ -41,7 +56,8 @@ impl Default for Settings {
 #[derive(Default)]
 pub struct Launch {
     pub library: Option<PathBuf>,
-    pub soundfont: Option<PathBuf>,
+    /// SoundFonts for this run (repeatable option), replacing the saved rack.
+    pub soundfonts: Vec<PathBuf>,
     pub device: Option<String>,
     /// A song code from the catalogue, or a `.sfkar` file.
     pub song: Option<String>,
@@ -86,8 +102,9 @@ impl KaraokeApp {
     pub fn new(cc: &eframe::CreationContext<'_>, launch: Launch) -> Self {
         crate::style::install(&cc.egui_ctx);
         let mut settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
-        if launch.soundfont.is_some() {
-            settings.soundfont = launch.soundfont;
+        if !launch.soundfonts.is_empty() {
+            settings.soundfonts = launch.soundfonts.clone();
+            settings.routing = [0; 16];
         }
         if launch.device.is_some() {
             settings.device = launch.device;
@@ -113,9 +130,23 @@ impl KaraokeApp {
         if let Some(e) = app.synth.output_error.clone() {
             app.toast_error(format!("ไม่มีเสียงออก: {e}"));
         }
-        match app.settings.soundfont.clone().filter(|p| p.is_file()).or_else(library::find_soundfont) {
-            Some(sf) => app.synth.load_soundfont(sf),
-            None => app.toast_error("ยังไม่มี SoundFont (.sf2) — เลือกได้ที่ ตั้งค่า (Ctrl+,)".into()),
+        // The saved rack, else an older single font, else one found on disk.
+        let mut fonts = std::mem::take(&mut app.settings.soundfonts);
+        if fonts.is_empty() {
+            fonts.extend(app.settings.soundfont.take().filter(|p| p.is_file()).or_else(library::find_soundfont));
+        }
+        for path in fonts {
+            if !path.is_file() {
+                app.toast_error(format!("ไม่พบ SoundFont: {}", path.display()));
+                continue;
+            }
+            if let Err(e) = app.synth.add_font(path) {
+                app.toast_error(e);
+            }
+        }
+        app.synth.set_routing(app.settings.routing);
+        if app.synth.fonts().is_empty() {
+            app.toast_error("ยังไม่มี SoundFont (.sf2) — เพิ่มได้ที่แท็บ เสียง (S)".into());
         }
         if let Some(e) = library_error {
             app.toast_error(format!("ฐานข้อมูลเพลงเสียหาย สร้างใหม่: {e}"));
@@ -227,9 +258,11 @@ impl KaraokeApp {
         }
     }
 
-    pub fn open_soundfont(&mut self, path: PathBuf) {
-        self.settings.soundfont = Some(path.clone());
-        self.synth.load_soundfont(path);
+    /// Add a SoundFont (or SFZ) to the rack.
+    pub fn add_soundfont(&mut self, path: PathBuf) {
+        if let Err(e) = self.synth.add_font(path) {
+            self.toast_error(e);
+        }
     }
 
     pub fn reopen_output(&mut self) {
@@ -314,6 +347,9 @@ impl KaraokeApp {
         if pressed(Key::M) {
             return self.open(Page::Mixer);
         }
+        if pressed(Key::S) {
+            return self.open(Page::Sounds);
+        }
         if pressed(Key::Space) {
             self.synth.toggle();
         }
@@ -357,6 +393,8 @@ impl eframe::App for KaraokeApp {
         self.poll(ctx);
         self.shortcuts(ctx);
         self.settings.volume = self.synth.volume();
+        self.settings.soundfonts = self.synth.font_paths();
+        self.settings.routing = self.synth.routing();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

@@ -34,7 +34,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let key = app.synth.key();
     let state = app.synth.state();
     let Some(now) = app.now.as_mut() else {
-        idle(&painter, rect, app.synth.soundfont_name().is_none());
+        idle(&painter, rect, !app.synth.has_font());
         return;
     };
     // With the bar hidden the stage carries key, tempo and time itself.
@@ -299,7 +299,7 @@ fn idle(painter: &Painter, rect: Rect, no_font: bool) {
         painter.text(
             c + vec2(0.0, size * 0.1 + 30.0),
             Align2::CENTER_TOP,
-            "ยังไม่มี SoundFont — เนื้อร้องจะเลื่อนตามเพลงแต่ไม่มีเสียงดนตรี (ตั้งค่า: Ctrl ,)",
+            "ยังไม่มี SoundFont — เนื้อร้องจะเลื่อนตามเพลงแต่ไม่มีเสียงดนตรี (แท็บ เสียง: S)",
             FontId::proportional(13.0),
             DIM,
         );

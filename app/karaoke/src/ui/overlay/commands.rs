@@ -31,9 +31,10 @@ pub enum Cmd {
     OpenLibrary,
     Rescan,
     ChooseSoundFont,
+    Sounds,
 }
 
-pub const ALL: [Cmd; 21] = [
+pub const ALL: [Cmd; 22] = [
     Cmd::PlayPause,
     Cmd::Restart,
     Cmd::Stop,
@@ -55,6 +56,7 @@ pub const ALL: [Cmd; 21] = [
     Cmd::OpenLibrary,
     Cmd::Rescan,
     Cmd::ChooseSoundFont,
+    Cmd::Sounds,
 ];
 
 impl Cmd {
@@ -75,7 +77,7 @@ impl Cmd {
             Cmd::Favorite => icons::STAR,
             Cmd::Settings => icons::SETTINGS,
             Cmd::OpenLibrary | Cmd::Rescan => icons::FOLDER_OPEN,
-            Cmd::ChooseSoundFont => icons::FILE_MUSIC,
+            Cmd::ChooseSoundFont | Cmd::Sounds => icons::FILE_MUSIC,
         }
     }
 
@@ -119,7 +121,8 @@ impl Cmd {
             Cmd::Settings => "ตั้งค่า".into(),
             Cmd::OpenLibrary => "เพิ่มโฟลเดอร์เพลง (NCN / .sfkar)…".into(),
             Cmd::Rescan => "สแกนคลังเพลงใหม่".into(),
-            Cmd::ChooseSoundFont => "เลือก SoundFont…".into(),
+            Cmd::ChooseSoundFont => "เพิ่ม SoundFont / SFZ…".into(),
+            Cmd::Sounds => "เสียง: SoundFont ของแต่ละแชนแนล".into(),
         }
     }
 
@@ -139,7 +142,7 @@ impl Cmd {
             Cmd::Favorite => "favorite favourite star",
             Cmd::Settings => "settings preferences",
             Cmd::OpenLibrary | Cmd::Rescan => "library ncn sfkar folder scan database",
-            Cmd::ChooseSoundFont => "soundfont sf2",
+            Cmd::ChooseSoundFont | Cmd::Sounds => "soundfont sf2 sfz sounds instrument routing",
         }
     }
 
@@ -155,6 +158,7 @@ impl Cmd {
             Cmd::Songs => &["/"],
             Cmd::Queue => &["Q"],
             Cmd::Mixer => &["M"],
+            Cmd::Sounds => &["S"],
             Cmd::Settings => &["Ctrl", ","],
             _ => &[],
         }
@@ -264,8 +268,9 @@ pub fn run(app: &mut KaraokeApp, ov: &mut Overlay, cmd: Cmd, ctx: &egui::Context
             Outcome::Close
         }
         Cmd::ChooseSoundFont => {
-            ov.browse(Target::SoundFont, app.synth.font_path.clone());
+            ov.browse(Target::SoundFont, app.synth.fonts().last().map(|f| f.path.clone()));
             Outcome::Stay
         }
+        Cmd::Sounds => Outcome::Goto(Page::Sounds),
     }
 }

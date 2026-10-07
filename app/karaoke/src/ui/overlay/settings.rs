@@ -1,4 +1,5 @@
-//! Library folder, SoundFont, audio device and lyric display.
+//! Song folders, audio device and lyric display (SoundFonts live on the
+//! Sounds page).
 
 use std::path::PathBuf;
 
@@ -9,7 +10,7 @@ use crate::app::KaraokeApp;
 use crate::icons;
 use crate::style::{DANGER, DIM, TEXT};
 
-const KEYS: [(&str, &str); 12] = [
+const KEYS: [(&str, &str); 13] = [
     ("Space", "เล่น / พัก"),
     ("Left  Right", "ถอย / ข้าม 5 วินาที"),
     ("[  ]", "ลด / เพิ่มคีย์"),
@@ -19,6 +20,7 @@ const KEYS: [(&str, &str); 12] = [
     ("/", "ค้นหาเพลง"),
     ("Q", "คิวเพลง"),
     ("M", "มิกเซอร์"),
+    ("S", "เสียง / SoundFont"),
     ("Ctrl K", "คำสั่งทั้งหมด"),
     ("Ctrl ,", "ตั้งค่า"),
     ("Tab", "สลับหน้าในแผงนี้"),
@@ -67,19 +69,6 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, max_h: f32) -> Option<(Targ
                     ui.label(RichText::new("กำลังสแกน…").color(DIM));
                 } else {
                     ui.label(RichText::new(format!("{} เพลงในฐานข้อมูล", app.library.db.songs.len())).size(12.0).color(DIM));
-                }
-            });
-            ui.add_space(14.0);
-
-            section(ui, icons::FILE_MUSIC, "SoundFont", "ไฟล์ .sf2 (General MIDI) สำหรับดนตรี");
-            path(ui, app.synth.font_path.as_ref());
-            ui.horizontal(|ui| {
-                if ui.button(format!("{}  เปลี่ยน…", icons::FILE_MUSIC)).clicked() {
-                    browse = Some((Target::SoundFont, app.synth.font_path.clone()));
-                }
-                if app.synth.loading_soundfont() {
-                    ui.spinner();
-                    ui.label(RichText::new("กำลังโหลด…").color(DIM));
                 }
             });
             ui.add_space(14.0);
@@ -145,11 +134,4 @@ fn section(ui: &mut egui::Ui, icon: &str, title: &str, hint: &str) {
             ui.label(RichText::new(hint).size(12.0).color(DIM));
         }
     });
-}
-
-fn path(ui: &mut egui::Ui, path: Option<&PathBuf>) {
-    match path {
-        Some(p) => ui.add(egui::Label::new(RichText::new(p.display().to_string()).monospace().size(12.0).color(DIM)).truncate()),
-        None => ui.label(RichText::new("ยังไม่ได้เลือก").color(DANGER)),
-    };
 }

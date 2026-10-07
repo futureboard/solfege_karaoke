@@ -7,6 +7,7 @@
 mod browse;
 mod commands;
 mod settings;
+mod sounds;
 mod mixer;
 
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Key, Margin, Modifiers, Rect, Sense, Shadow, Stroke, pos2, vec2};
@@ -25,15 +26,17 @@ pub enum Page {
     Queue,
     Commands,
     Mixer,
+    Sounds,
     Settings,
     Browse,
 }
 
-const TABS: [(Page, &str); 5] = [
+const TABS: [(Page, &str); 6] = [
     (Page::Songs, "เพลง"),
     (Page::Queue, "คิว"),
     (Page::Commands, "คำสั่ง"),
     (Page::Mixer, "มิกเซอร์"),
+    (Page::Sounds, "เสียง"),
     (Page::Settings, "ตั้งค่า"),
 ];
 
@@ -46,6 +49,8 @@ pub struct Overlay {
     /// Bring the cursor row into view this frame (it moved by keyboard).
     reveal: bool,
     browse: Option<Browse>,
+    /// Page the browser returns to.
+    back: Page,
 }
 
 /// What an action leaves behind.
@@ -65,7 +70,7 @@ enum Item {
 
 impl Overlay {
     pub fn new(page: Page) -> Self {
-        Self { page, query: String::new(), cursor: 0, scroll: 0.0, reveal: true, browse: None }
+        Self { page, query: String::new(), cursor: 0, scroll: 0.0, reveal: true, browse: None, back: Page::Settings }
     }
 
     fn goto(&mut self, page: Page) {
@@ -78,11 +83,15 @@ impl Overlay {
 
     fn browse(&mut self, target: Target, start: Option<std::path::PathBuf>) {
         self.browse = Some(Browse::new(target, start));
+        self.back = match target {
+            Target::Library => Page::Settings,
+            Target::SoundFont => Page::Sounds,
+        };
         self.goto(Page::Browse);
     }
 
     fn is_list(&self) -> bool {
-        !matches!(self.page, Page::Mixer | Page::Settings)
+        !matches!(self.page, Page::Mixer | Page::Sounds | Page::Settings)
     }
 }
 
@@ -99,7 +108,7 @@ fn items(app: &KaraokeApp, ov: &Overlay) -> Vec<Item> {
             .collect(),
         Page::Commands => commands::ALL.iter().filter(|c| c.matches(app, &q)).map(|&c| Item::Cmd(c)).collect(),
         Page::Browse => ov.browse.as_ref().map(|b| b.entries(&ov.query).into_iter().map(Item::Entry).collect()).unwrap_or_default(),
-        Page::Mixer | Page::Settings => Vec::new(),
+        Page::Mixer | Page::Sounds | Page::Settings => Vec::new(),
     }
 }
 
@@ -137,8 +146,9 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
     // Keys first, before the text field can claim them.
     let mut outcome = Outcome::Stay;
     let key = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_key(m, k));
-    if key(Modifiers::NONE, Key::Escape) {
-        return if ov.page == Page::Browse { Outcome::Goto(Page::Settings) } else { Outcome::Close };
+    // Esc first closes an open drop-down (egui handles that), then the overlay.
+    if !ctx.any_popup_open() && key(Modifiers::NONE, Key::Escape) {
+        return if ov.page == Page::Browse { Outcome::Goto(ov.back) } else { Outcome::Close };
     }
     if key(Modifiers::SHIFT, Key::Tab) {
         return Outcome::Goto(cycle(ov.page, -1));
@@ -245,6 +255,11 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                     divider(ui);
                     match ov.page {
                         Page::Mixer => mixer::show(app, ui),
+                        Page::Sounds => {
+                            if let Some((target, start)) = sounds::show(app, ui, max_list) {
+                                ov.browse(target, start);
+                            }
+                        }
                         Page::Settings => {
                             if let Some((target, start)) = settings::show(app, ui, max_list) {
                                 ov.browse(target, start);
@@ -284,7 +299,7 @@ fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui) -> Option<Page> {
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
     let p = ui.painter();
     let mut x = bar.left() + 18.0;
-    let current = if ov.page == Page::Browse { Page::Settings } else { ov.page };
+    let current = if ov.page == Page::Browse { ov.back } else { ov.page };
     for (page, name) in TABS {
         let label = match page {
             Page::Queue if !app.queue.is_empty() => format!("{name}  {}", app.queue.len()),
@@ -531,7 +546,8 @@ fn footer(page: Page, ui: &mut egui::Ui) {
         Page::Songs => &[("↵", "จองคิว"), ("Shift ↵", "ร้องเลย"), ("Ctrl D", "เพลงโปรด"), ("Tab", "หน้าถัดไป")],
         Page::Queue => &[("↵", "ร้องเลย"), ("Shift ↵", "ขึ้นเป็นเพลงถัดไป"), ("Alt ↑↓", "เลื่อน"), ("Del", "เอาออก")],
         Page::Commands => &[("↵", "ทำคำสั่ง"), ("Tab", "หน้าถัดไป")],
-        Page::Browse => &[("↵", "เปิด / เลือก"), ("Esc", "กลับไปตั้งค่า")],
+        Page::Browse => &[("↵", "เปิด / เลือก"), ("Esc", "กลับ")],
+        Page::Sounds => &[("S", "เปิดหน้านี้"), ("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
         Page::Mixer => &[("ลาก", "ปรับระดับ / แพน"), ("ดับเบิลคลิก", "ค่าเริ่มต้น"), ("M S", "ปิดเสียง / โซโล่")],
         Page::Settings => &[("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
     };
@@ -583,9 +599,9 @@ fn activate(app: &mut KaraokeApp, ov: &mut Overlay, item: Item, alt: bool, ctx: 
                 Some(path) => {
                     match b.target {
                         Target::Library => app.add_source(path),
-                        Target::SoundFont => app.open_soundfont(path),
+                        Target::SoundFont => app.add_soundfont(path),
                     }
-                    Outcome::Goto(Page::Settings)
+                    Outcome::Goto(ov.back)
                 }
                 None => {
                     ov.query.clear();
