@@ -2,6 +2,8 @@
 name = "solfege_ncnparser"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/futureboard/solfege_karaoke"
 description = "Parser for NCN karaoke libraries (Song/*.mid, Lyrics/*.lyr, Cursor/*.cur)"
 
 [dependencies]

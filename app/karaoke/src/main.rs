@@ -1,4 +1,4 @@
-//! Solfege Karaoke: sing along to NCN karaoke songs. The backing MIDI plays
+//! Solfege Karaoke: sing along to NCN and .sfkar karaoke songs. The backing MIDI plays
 //! through the `solfege_synth` engine with a SoundFont; lyrics come from
 //! `solfege_ncnparser` and light up syllable by syllable.
 
@@ -21,23 +21,30 @@ use eframe::egui;
 
 use app::{KaraokeApp, Launch};
 
+/// Name of the settings and song catalogue folder.
+pub const APP_ID: &str = "solfege-karaoke";
+
 const USAGE: &str = "\
-solfege-karaoke - NCN karaoke player
+solfege-karaoke - karaoke player for NCN and .sfkar songs
 
 USAGE:
-    solfege-karaoke [OPTIONS] [SONG_ID]
+    solfege-karaoke [OPTIONS] [SONG]
 
-    SONG_ID starts that song once the library is loaded (e.g. Z2608001).
+    SONG is a song code from the catalogue (e.g. Z2608001), started once
+    the library is scanned, or a .sfkar file to play directly.
 
 OPTIONS:
-    -L, --library <DIR>     NCN library folder (holds Song, Lyrics, Cursor)
-    -s, --soundfont <FILE>  SoundFont (.sf2) for the backing tracks
+    -L, --library <DIR>     add a song folder: an NCN library (Song, Lyrics,
+                            Cursor) or a folder of .sfkar files
+    -s, --soundfont <FILE>  SoundFont (.sf2) or SFZ for the backing tracks;
+                            repeat for a rack (the first plays every channel
+                            until routed otherwise)
     -d, --device <NAME>     audio output device (substring match)
     -l, --list              list audio output devices, then exit
     -h, --help              show this help
 
-Without options the last used library and SoundFont are reopened; on first
-run `shared/NCN` and any .sf2 in `shared/` are picked up.
+The song catalogue, SoundFont rack and settings persist between runs. On
+first run `shared/NCN` and the first .sf2 in `shared/` are picked up.
 ";
 
 fn parse_args() -> Result<Option<Launch>> {
@@ -60,7 +67,7 @@ fn parse_args() -> Result<Option<Launch>> {
                 return Ok(None);
             }
             "-L" | "--library" => launch.library = Some(PathBuf::from(value("--library")?)),
-            "-s" | "--soundfont" => launch.soundfont = Some(PathBuf::from(value("--soundfont")?)),
+            "-s" | "--soundfont" => launch.soundfonts.push(PathBuf::from(value("--soundfont")?)),
             "-d" | "--device" => launch.device = Some(value("--device")?),
             s if s.starts_with('-') => bail!("unknown option {s}\n\n{USAGE}"),
             _ => launch.song = Some(arg),
@@ -78,6 +85,6 @@ fn main() -> Result<()> {
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };
-    eframe::run_native("solfege-karaoke", options, Box::new(|cc| Ok(Box::new(KaraokeApp::new(cc, launch)))))
+    eframe::run_native(APP_ID, options, Box::new(|cc| Ok(Box::new(KaraokeApp::new(cc, launch)))))
         .map_err(|e| anyhow!("{e}"))
 }

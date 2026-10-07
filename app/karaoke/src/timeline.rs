@@ -2,7 +2,8 @@
 //! each split into syllables (runs of clusters that light up together) with
 //! the span over which the highlight wipes across them.
 
-use solfege_ncnparser::NcnSong;
+use solfege_ncnparser::MidiInfo;
+use solfege_sfkar::KarSong;
 
 /// Longest time one syllable's wipe may take. Cursor gaps longer than this
 /// are rests or instrumental fills, not a held note.
@@ -59,15 +60,16 @@ pub struct Tempo {
 }
 
 impl Tempo {
-    pub fn new(song: &NcnSong) -> Self {
-        let ppq = song.ppq.max(1) as u32;
-        let mut ticks: Vec<u32> = std::iter::once(0).chain(song.tempo.changes().iter().map(|c| c.0)).collect();
+    pub fn new(midi: &MidiInfo) -> Self {
+        let ppq = midi.ppq.max(1) as u32;
+        let seconds = |tick: u32| midi.tempo.seconds(tick);
+        let mut ticks: Vec<u32> = std::iter::once(0).chain(midi.tempo.changes().iter().map(|c| c.0)).collect();
         ticks.dedup();
         let segments = ticks
             .into_iter()
             .map(|tick| {
-                let sec = song.seconds(tick);
-                let spq = (song.seconds(tick + ppq) - sec).max(1e-3);
+                let sec = seconds(tick);
+                let spq = (seconds(tick + ppq) - sec).max(1e-3);
                 (sec, tick as f64 / ppq as f64, spq)
             })
             .collect();
@@ -114,22 +116,23 @@ pub enum Cue {
 }
 
 impl Timeline {
-    pub fn new(song: &NcnSong) -> Self {
-        let tempo = Tempo::new(song);
+    /// Timed lines of a song; `midi` is its backing track's timing.
+    pub fn new(song: &KarSong, midi: &MidiInfo) -> Self {
+        let tempo = Tempo::new(midi);
+        let seconds = |tick: u32| midi.tempo.seconds(tick);
         let mut lines = Vec::new();
-        for l in song.lines.iter().filter(|l| !l.is_blank()) {
-            let end = song.seconds(l.end);
+        for l in song.lyrics.lines.iter().filter(|l| !l.text().trim().is_empty()) {
+            let end = seconds(l.end);
             let mut syllables: Vec<Syllable> = Vec::new();
-            let mut last_tick = None;
-            for c in &l.clusters {
+            for seg in &l.segments {
                 match syllables.last_mut() {
-                    Some(s) if last_tick == Some(c.tick) => s.text.push_str(&c.text),
+                    // Segments are already per tick; equal ticks only in hand-made files.
+                    Some(s) if s.start == seconds(seg.tick()) => s.text.push_str(seg.text()),
                     _ => {
-                        let t = song.seconds(c.tick);
-                        syllables.push(Syllable { text: c.text.clone(), start: t, end: t });
+                        let t = seconds(seg.tick());
+                        syllables.push(Syllable { text: seg.text().to_string(), start: t, end: t });
                     }
                 }
-                last_tick = Some(c.tick);
             }
             // Each syllable wipes until the next one starts (or the line ends).
             for i in 0..syllables.len() {
@@ -139,7 +142,7 @@ impl Timeline {
             }
             let start = syllables.first().map_or(end, |s| s.start);
             let beat = tempo.beat(start);
-            lines.push(Line { text: l.text.clone(), syllables, start, end: end.max(start), beat });
+            lines.push(Line { text: l.text(), syllables, start, end: end.max(start), beat });
         }
         Self { lines, tempo }
     }
@@ -206,8 +209,8 @@ mod tests {
             return;
         };
         for e in lib.complete() {
-            let song = lib.load(&e.id).unwrap();
-            let tl = Timeline::new(&song);
+            let kar = solfege_sfkar::convert(&lib, &e.id).unwrap();
+            let tl = Timeline::new(&kar, &kar.timing().unwrap());
             assert!(tl.lines.len() > 3, "{}", e.id);
             let mut last = 0.0;
             for l in &tl.lines {
@@ -265,8 +268,8 @@ mod tests {
             end_tick: 4800,
             locked: false,
         };
-        let song = NcnSong::from_parts("x", lyr, &cur, &midi);
-        let tl = Timeline::new(&song);
+        let song = solfege_ncnparser::NcnSong::from_parts("x", lyr, &cur, &midi);
+        let tl = Timeline::new(&KarSong::from_ncn(&song, Vec::new()), &midi);
         assert!((tl.tempo.bpm(0.5) - 120.0).abs() < 1e-6);
         assert!((tl.tempo.bpm(1.5) - 60.0).abs() < 1e-6);
         assert!((tl.tempo.quarters(1.0) - 2.0).abs() < 1e-6);

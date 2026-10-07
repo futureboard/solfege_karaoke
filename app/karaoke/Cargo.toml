@@ -2,7 +2,9 @@
 name = "karaoke"
 version = "0.1.0"
 edition = "2024"
-description = "NCN karaoke player with an egui front end"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/futureboard/solfege_karaoke"
+description = "Karaoke player (NCN and .sfkar songs) with an egui front end"
 
 [[bin]]
 name = "solfege-karaoke"
@@ -10,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 solfege_ncnparser = { path = "../../crates/solfege_ncnparser" }
+solfege_sfkar = { path = "../../crates/solfege_sfkar" }
+solfege_songdb = { path = "../../crates/solfege_songdb" }
 solfege_synth = { path = "../../crates/solfege_synth" }
 anyhow = "1"
 crossbeam-channel = "0.5"
