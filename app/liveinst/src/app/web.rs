@@ -435,7 +435,7 @@ impl App {
                 let url = format!("http://{bound}");
                 self.info(format!("web UI: {url}"));
                 if dir.is_none() {
-                    self.error("web UI not built: cd webui && npm install && npm run build");
+                    self.error("web UI not built: cd app/liveinst/webui && npm install && npm run build");
                 }
                 self.web = Some(hub);
                 self.web_url = Some(url);

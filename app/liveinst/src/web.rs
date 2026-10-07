@@ -232,7 +232,7 @@ async fn no_build() -> Html<&'static str> {
         "<!doctype html><meta charset=utf-8><title>simpletui</title>\
          <body style='font-family:system-ui;background:#111;color:#ddd;padding:2rem'>\
          <h1>simpletui web UI is not built</h1>\
-         <p>Run:</p><pre>cd webui\nnpm install\nnpm run build</pre>\
+         <p>Run:</p><pre>cd app/liveinst/webui\nnpm install\nnpm run build</pre>\
          <p>then reload. The API is live at <code>/api/state</code>.</p>",
     )
 }
@@ -362,11 +362,13 @@ async fn ws_loop(mut socket: WebSocket, hub: Hub) {
     hub.clients.fetch_sub(1, Ordering::Relaxed);
 }
 
-/// `webui/dist` next to the working directory or any ancestor of the exe.
+/// `webui/dist` (or `app/liveinst/webui/dist` from the workspace root) next
+/// to the working directory or any ancestor of the exe.
 pub fn find_web_dir() -> Option<PathBuf> {
-    let mut candidates = vec![PathBuf::from("webui/dist")];
+    const DIRS: [&str; 2] = ["webui/dist", "app/liveinst/webui/dist"];
+    let mut candidates: Vec<PathBuf> = DIRS.iter().map(PathBuf::from).collect();
     if let Ok(exe) = std::env::current_exe() {
-        candidates.extend(exe.ancestors().skip(1).map(|a| a.join("webui/dist")));
+        candidates.extend(exe.ancestors().skip(1).flat_map(|a| DIRS.map(|d| a.join(d))));
     }
     candidates.into_iter().find(|c| c.join("index.html").exists())
 }

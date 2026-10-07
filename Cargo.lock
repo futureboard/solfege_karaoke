@@ -1072,6 +1072,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "liveinst"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "crossbeam-channel",
+ "midir",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "solfege_synth",
+ "tokio",
+ "tower-http",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2037,22 +2053,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
-name = "simpletui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "cpal",
- "crossbeam-channel",
- "midir",
- "ratatui",
- "serde",
- "serde_json",
- "tokio",
- "tower-http",
-]
-
-[[package]]
 name = "siphasher"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2083,6 +2083,16 @@ dependencies = [
 [[package]]
 name = "solfege_ncnparser"
 version = "0.1.0"
+
+[[package]]
+name = "solfege_synth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "crossbeam-channel",
+ "serde",
+]
 
 [[package]]
 name = "static_assertions"
