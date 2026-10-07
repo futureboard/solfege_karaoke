@@ -19,7 +19,7 @@ use crate::icons;
 use crate::music::transpose_key;
 use crate::style::{ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family, mix};
 use crate::timeline::{COUNT_IN_BEATS, Cue, Line};
-use crate::ui::{menu, overlay};
+use crate::ui::{menu, overlay, screen2};
 
 /// Colours of the lyrics (from the settings), set at the start of a frame.
 #[derive(Clone, Copy)]
@@ -47,13 +47,20 @@ const LOOK_AHEAD: f64 = 0.5;
 /// Size of the lines around the focus line, relative to it.
 const SIDE_SCALE: f32 = 0.66;
 
-pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
+/// The stage in the main window, or on the second screen (`second`),
+/// where double-click and right click act on that window.
+pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, second: bool) {
     let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click());
     if resp.double_clicked() {
         let ctx = ui.ctx().clone();
-        app.set_fullscreen(&ctx, !app.fullscreen);
+        if second {
+            let s = &app.settings.second_screen;
+            screen2::set_fullscreen(&ctx, !s.fullscreen, s.monitor);
+        } else {
+            app.set_fullscreen(&ctx, !app.fullscreen);
+        }
     }
-    resp.context_menu(|ui| menu::app_menu(app, ui));
+    resp.context_menu(|ui| if second { screen2::context_menu(app, ui) } else { menu::app_menu(app, ui) });
     let painter = ui.painter_at(rect);
     backdrop(&painter, rect);
     let c = app.settings.lyric_colors;

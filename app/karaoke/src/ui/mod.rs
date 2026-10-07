@@ -8,6 +8,7 @@ pub mod effects;
 pub mod menu;
 mod mixer;
 pub mod overlay;
+pub mod screen2;
 pub mod sound;
 pub mod stage;
 
@@ -32,11 +33,12 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             .show_separator_line(false)
             .show(ui, |ui| mixer::show(app, ui));
     }
-    egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui));
+    egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui, false));
     overlay::show(app, &ctx);
     sound::show(app, &ctx);
     effects::editor(app, &ctx);
     toasts(app, &ctx);
+    screen2::show(app, &ctx);
     let open = ctx.any_popup_open();
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(POPUP_OPEN), open));
 }

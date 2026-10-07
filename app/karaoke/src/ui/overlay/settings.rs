@@ -1,5 +1,5 @@
 //! Settings popup: a sidebar of sections (song library, audio output,
-//! lyrics, shortcuts, data files) and the chosen section's cards beside
+//! lyrics, displays, shortcuts, data files) and the chosen section's cards beside
 //! it. SoundFonts and instrument sounds have their own window
 //! (`ui::sound`); the effect chain lives in the mixer.
 
@@ -17,6 +17,7 @@ pub enum Section {
     Library,
     Audio,
     Lyrics,
+    Display,
     Keys,
     Files,
 }
@@ -46,6 +47,7 @@ const KEYS: [(&str, &[(&str, &str)]); 3] = [
             ("M  E", "มิกเซอร์และเอฟเฟกต์"),
             ("S", "เสียงและ SoundFont"),
             ("F  F11", "เต็มจอ (Esc ออก)"),
+            ("D", "เปิด / ปิดจอที่สอง"),
             ("Tab", "สลับเพลง / คิว"),
         ],
     ),
@@ -79,6 +81,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, section: &mut Section, max_
                         Section::Library => library(app, ui),
                         Section::Audio => audio(app, ui),
                         Section::Lyrics => lyrics(app, ui),
+                        Section::Display => display(app, ui),
                         Section::Keys => keys(ui),
                         Section::Files => files(app, ui),
                     }
@@ -94,6 +97,7 @@ fn sidebar(app: &KaraokeApp, ui: &mut egui::Ui, section: &mut Section) {
         (Section::Library, icons::DATABASE, "คลังเพลง", app.library.db.songs.len().to_string()),
         (Section::Audio, icons::HEADPHONES, "เสียงออก", String::new()),
         (Section::Lyrics, icons::TYPE, "เนื้อร้อง", String::new()),
+        (Section::Display, icons::MONITOR, "จอแสดงผล", if app.settings.second_screen.open { "2 จอ".into() } else { String::new() }),
         (Section::Keys, icons::KEYBOARD, "ปุ่มลัด", String::new()),
         (Section::Files, icons::FOLDER_OPEN, "ไฟล์ข้อมูล", String::new()),
     ];
@@ -322,6 +326,90 @@ fn audio(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         row(ui, "SoundFont และเสียงเครื่องดนตรี", "เลือกไฟล์เสียง เสียงของแต่ละแชนแนล เครื่องดนตรี และชุดกลอง", |ui| {
             if ui.button(format!("{}  เปิดหน้าต่างเสียง  ·  S", icons::FILE_MUSIC)).clicked() {
                 app.open_sound();
+            }
+        });
+    });
+}
+
+// ------------------------------------------------------------------- display
+
+fn display(app: &mut KaraokeApp, ui: &mut egui::Ui) {
+    title(ui, "จอแสดงผล", "เต็มจอ และจอที่สองสำหรับทีวีหรือโปรเจกเตอร์");
+    let ctx = ui.ctx().clone();
+    card(ui, |ui| {
+        row(ui, "เต็มจอ (หน้าต่างหลัก)", "แถบควบคุม มิกเซอร์ และหน้าต่างอื่นยังใช้ได้  ·  F", |ui| {
+            let mut full = app.fullscreen;
+            if switch(ui, &mut full) {
+                app.set_fullscreen(&ctx, full);
+            }
+        });
+    });
+    card(ui, |ui| {
+        card_title(
+            ui,
+            icons::SECOND_SCREEN,
+            "จอที่สอง (Dual Display)",
+            "หน้าต่างแยกที่แสดงเนื้อร้องอย่างเดียว ส่วนหน้าต่างหลักยังใช้ควบคุมได้ตามปกติ",
+        );
+        ui.add_space(2.0);
+        let s = &mut app.settings.second_screen;
+        row(ui, "เปิดจอที่สอง", "D  ·  หรือคลิกขวาที่เนื้อร้อง", |ui| {
+            let mut open = s.open;
+            if switch(ui, &mut open) {
+                s.open = open;
+            }
+        });
+        ui.separator();
+        row(ui, "เต็มจอบนจอที่สอง", "F หรือดับเบิลคลิกบนจอที่สอง  ·  เมาส์จะซ่อนเองเมื่อไม่ขยับ", |ui| {
+            let mut full = s.fullscreen;
+            if switch(ui, &mut full) {
+                s.fullscreen = full;
+                if s.open {
+                    ctx.send_viewport_cmd_to(crate::ui::screen2::viewport_id(), crate::ui::screen2::fullscreen_cmd(full, s.monitor));
+                }
+            }
+        });
+        ui.separator();
+        row(ui, "จอที่ใช้เต็มจอ", "ลำดับจอตามที่ระบบเรียง ถ้าไม่มีจอนั้นจะเต็มจอไม่ได้", |ui| {
+            let name = |m: Option<usize>| m.map_or("จอที่หน้าต่างอยู่".to_string(), |i| format!("จอที่ {}", i + 1));
+            let mut choice = s.monitor;
+            crate::ui::fixed_width(ui, 200.0, |ui| {
+                egui::ComboBox::from_id_salt("second-monitor").selected_text(name(choice)).width(200.0).show_ui(ui, |ui| {
+                    for m in [None, Some(0), Some(1), Some(2), Some(3)] {
+                        ui.selectable_value(&mut choice, m, name(m));
+                    }
+                })
+            });
+            if choice != s.monitor {
+                s.monitor = choice;
+                if s.open && s.fullscreen {
+                    ctx.send_viewport_cmd_to(crate::ui::screen2::viewport_id(), crate::ui::screen2::fullscreen_cmd(true, choice));
+                }
+            }
+        });
+        ui.separator();
+        let place = match s.pos {
+            Some([x, y]) => format!("ตำแหน่ง {x:.0}, {y:.0}  ·  ขนาด {:.0} × {:.0}", s.size[0], s.size[1]),
+            None => format!("ให้ระบบเลือกตำแหน่ง  ·  ขนาด {:.0} × {:.0}", s.size[0], s.size[1]),
+        };
+        row(ui, "ตำแหน่งที่จำไว้", &place, |ui| {
+            if ui.add_enabled(s.pos.is_some() || s.size != crate::config::SecondScreen::default().size, egui::Button::new(icons::UNDO)).on_hover_text("ลืมตำแหน่ง (ใช้ตอนเปิดครั้งถัดไป)").clicked() {
+                s.pos = None;
+                s.size = crate::config::SecondScreen::default().size;
+            }
+        });
+        ui.add_space(4.0);
+        Frame::new().fill(INK).corner_radius(CornerRadius::same(8)).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            for (n, step) in [
+                "ต่อทีวีหรือโปรเจกเตอร์แล้วตั้งเป็นจอขยาย (Extend) ในระบบ",
+                "เปิดจอที่สอง (D) แล้วลากหน้าต่าง \"จอเนื้อร้อง\" ไปที่จอนั้น",
+                "กด F หรือดับเบิลคลิกให้เต็มจอ — ครั้งต่อไปจะเปิดที่จอเดิมเอง (หรือเลือก \"จอที่ใช้เต็มจอ\" ไว้เลย)",
+            ]
+            .iter()
+            .enumerate()
+            {
+                ui.label(RichText::new(format!("{}.  {step}", n + 1)).size(12.5).color(DIM));
             }
         });
     });

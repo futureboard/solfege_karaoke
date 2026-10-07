@@ -59,6 +59,30 @@ pub struct Settings {
     pub lyric_outline: f32,
     /// Font file for the lyrics (`.ttf`, `.otf`, `.ttc`); `None` = Noto Sans Thai.
     pub lyric_font: Option<PathBuf>,
+    /// The second screen (lyrics only, for a TV or projector).
+    pub second_screen: SecondScreen,
+}
+
+/// A second window that shows only the lyric stage. It opens where it was
+/// last, so once dragged onto the TV it comes back there.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecondScreen {
+    pub open: bool,
+    pub fullscreen: bool,
+    /// Outer top-left of the window, in points (`None` = let the system place it).
+    pub pos: Option<[f32; 2]>,
+    /// Inner size, in points.
+    pub size: [f32; 2],
+    /// Display for full screen, in the system's order (`None` = the one
+    /// the window is on).
+    pub monitor: Option<usize>,
+}
+
+impl Default for SecondScreen {
+    fn default() -> Self {
+        Self { open: false, fullscreen: false, pos: None, size: [1280.0, 720.0], monitor: None }
+    }
 }
 
 /// Colours of the lyric stage, as RGB.
@@ -143,6 +167,7 @@ impl Default for Settings {
             lyric_colors: LyricColors::default(),
             lyric_outline: 1.0,
             lyric_font: None,
+            second_screen: SecondScreen::default(),
         }
     }
 }
@@ -259,6 +284,7 @@ mod tests {
         s.fx.reverb_room = 0.9;
         s.lyric_colors = LyricColors::PRESETS[2].1;
         s.lyric_outline = 2.5;
+        s.second_screen = SecondScreen { open: true, fullscreen: true, pos: Some([1920.0, 0.0]), monitor: Some(1), ..SecondScreen::default() };
         s.lyric_font = Some(PathBuf::from("/fonts/lyrics.ttf"));
         file.save(&s).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -276,6 +302,7 @@ mod tests {
         assert!(back.lyric_colors == LyricColors::PRESETS[2].1);
         assert_eq!(back.lyric_font, s.lyric_font);
         assert_eq!(back.lyric_outline, 2.5);
+        assert_eq!(back.second_screen, s.second_screen);
 
         // Hand-edited with fields missing: defaults fill in.
         std::fs::write(&path, r#"{ "volume": 0.3 }"#).unwrap();

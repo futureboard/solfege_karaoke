@@ -44,30 +44,7 @@ pub fn heading(ui: &mut egui::Ui, text: &str) {
 /// the stage or the bottom bar.
 pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
-    let loaded = app.synth.state() != PlayState::Empty;
-    if let Some(now) = &app.now {
-        heading(ui, &now.entry.title);
-    }
-    let playing = app.synth.state() == PlayState::Playing;
-    let (icon, label) = if playing { (icons::PAUSE, "พัก") } else { (icons::PLAY, "เล่น") };
-    if item_if(ui, loaded, icon, label, "Space") {
-        app.synth.toggle();
-    }
-    let stopped = app.synth.state() == PlayState::Stopped;
-    if item_if(ui, loaded && !stopped, icons::STOP, "หยุด (กลับไปต้นเพลง)", "Shift Space") {
-        app.stop();
-    }
-    if item_if(ui, loaded, icons::RESTART, "เริ่มเพลงนี้ใหม่", "") {
-        app.synth.seek(0.0);
-        app.synth.play();
-        if let Some(n) = &mut app.now {
-            n.finished = false;
-        }
-    }
-    let next = app.queue.front().map(|s| format!("เพลงถัดไป: {}", s.title));
-    if item_if(ui, next.is_some(), icons::NEXT, next.as_deref().unwrap_or("เพลงถัดไป (คิวว่าง)"), "N") {
-        app.play_next();
-    }
+    playback_items(app, ui);
     ui.menu_button(format!("{}   คีย์และความเร็ว", icons::KEY), |ui| {
         let key = app.synth.key();
         if item(ui, icons::MINUS, "ลดคีย์", "[") {
@@ -144,5 +121,36 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let (icon, label) = if app.fullscreen { (icons::EXIT_FULLSCREEN, "ออกจากเต็มจอ") } else { (icons::FULLSCREEN, "เต็มจอ") };
     if item(ui, icon, label, "F") {
         app.set_fullscreen(&ctx, !app.fullscreen);
+    }
+    if toggle(ui, app.settings.second_screen.open, icons::SECOND_SCREEN, "จอที่สอง (เนื้อร้องอย่างเดียว)", "D") {
+        app.toggle_second_screen();
+    }
+}
+
+/// The song's title, play / pause, stop, restart and next.
+pub fn playback_items(app: &mut KaraokeApp, ui: &mut egui::Ui) {
+    let loaded = app.synth.state() != PlayState::Empty;
+    if let Some(now) = &app.now {
+        heading(ui, &now.entry.title);
+    }
+    let playing = app.synth.state() == PlayState::Playing;
+    let (icon, label) = if playing { (icons::PAUSE, "พัก") } else { (icons::PLAY, "เล่น") };
+    if item_if(ui, loaded, icon, label, "Space") {
+        app.synth.toggle();
+    }
+    let stopped = app.synth.state() == PlayState::Stopped;
+    if item_if(ui, loaded && !stopped, icons::STOP, "หยุด (กลับไปต้นเพลง)", "Shift Space") {
+        app.stop();
+    }
+    if item_if(ui, loaded, icons::RESTART, "เริ่มเพลงนี้ใหม่", "") {
+        app.synth.seek(0.0);
+        app.synth.play();
+        if let Some(n) = &mut app.now {
+            n.finished = false;
+        }
+    }
+    let next = app.queue.front().map(|s| format!("เพลงถัดไป: {}", s.title));
+    if item_if(ui, next.is_some(), icons::NEXT, next.as_deref().unwrap_or("เพลงถัดไป (คิวว่าง)"), "N") {
+        app.play_next();
     }
 }

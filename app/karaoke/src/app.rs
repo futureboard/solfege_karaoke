@@ -73,6 +73,8 @@ pub struct KaraokeApp {
     pub scrub: Option<f64>,
     pending_song: Option<String>,
     clock: f64,
+    /// The second screen's window as it was opened (see `ui::screen2`).
+    pub second_window: Option<egui::ViewportBuilder>,
 }
 
 impl KaraokeApp {
@@ -114,6 +116,7 @@ impl KaraokeApp {
             ),
             scrub: None,
             pending_song: launch.song,
+            second_window: None,
             clock: 0.0,
         };
         if let Some(path) = app.settings.lyric_font.clone() {
@@ -370,7 +373,8 @@ impl KaraokeApp {
         self.sound = Some(SoundPanel::new());
     }
 
-    fn shortcuts(&mut self, ctx: &egui::Context) {
+    /// Keys of the main window; the second screen passes its keys here too.
+    pub fn shortcuts(&mut self, ctx: &egui::Context) {
         // The overlay handles its own keys.
         if self.overlay.is_some() || self.sound.is_some() || self.effect_editor.is_some() || ctx.egui_wants_keyboard_input() {
             return;
@@ -406,6 +410,9 @@ impl KaraokeApp {
         }
         if pressed(Key::L) {
             self.toggle_lyric_mode();
+        }
+        if pressed(Key::D) {
+            self.toggle_second_screen();
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Space)) {
             self.stop();
@@ -481,6 +488,17 @@ impl KaraokeApp {
     pub fn toggle_lyric_mode(&mut self) {
         self.settings.lyric_mode = self.settings.lyric_mode.other();
         self.toast(format!("เนื้อร้อง: {}", self.settings.lyric_mode.label()));
+    }
+
+    /// Open or close the second screen (lyrics only, for a TV).
+    pub fn toggle_second_screen(&mut self) {
+        let open = !self.settings.second_screen.open;
+        self.settings.second_screen.open = open;
+        self.toast(if open {
+            "เปิดจอที่สอง — ลากไปที่จอทีวีแล้วกด F หรือดับเบิลคลิกให้เต็มจอ".into()
+        } else {
+            "ปิดจอที่สอง".into()
+        });
     }
 
     pub fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {

@@ -44,8 +44,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | Classic layout: two lines that take turns (`L`) | About page |
 | ![A kit per drum piece](docs/screenshots/drum-pieces.png) | ![Effect editor](docs/screenshots/effects.png) |
 | Kick, snare, ... each from its own SoundFont and kit | Effect slot editor (popup over the mixer) |
-| ![Settings](docs/screenshots/settings.png) | |
-| Settings popup (`Ctrl ,`): lyric font and colours | |
+| ![Settings](docs/screenshots/settings.png) | ![Second screen](docs/screenshots/second-screen.png) |
+| Settings popup (`Ctrl ,`): lyric font and colours | Second screen (`D`): lyrics on the TV, controls on the laptop |
 
 ## What is in here
 
@@ -89,9 +89,17 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 - **Full screen** (`F`, `F11` or double-click the stage) fills the screen
   and keeps everything: bottom bar, mixer, overlays and windows. Type to filter, arrows to move, Enter to
   act.
+- **Second screen (dual display)** (`D`). A window of its own with only
+  the lyrics, for a TV or projector, while the main window keeps the
+  controls. Drag it onto the other display and press `F` (or double-click)
+  for full screen there, or pick the display in Settings; it reopens in
+  the same place, full screen if it was. The pointer hides on it after
+  two seconds, and every shortcut works from it too.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
   one searchable list, with favourites and play counts, kept in an SQLite
-  database (`songs.dat`); songs can be queued.
+  database (`songs.dat`); songs can be queued. A folder of `.sfkar` files
+  converted from an NCN library lists its own copies next to the NCN
+  ones, each tagged NCN or SFKAR.
 - **Native file dialogs.** SoundFonts and song folders are picked with
   the system's own dialog: the common item dialog on Windows, NSOpenPanel
   on macOS and the XDG desktop portal on Linux (the desktop's file chooser
@@ -138,7 +146,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `V` | guide melody (channel 9) on / off | `L` | lyric layout |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
-| right click | context menu | | |
+| `D` | second screen on / off | right click | context menu |
 
 In the song / queue panel: `Enter` reserves a song, `Shift Enter` sings it
 now, `Ctrl D` marks a favourite, `Tab` switches between songs and queue and
@@ -195,7 +203,7 @@ under Settings):
 
 | File | What it holds |
 |---|---|
-| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size, offset, outline, colours and font. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size, offset, outline, colours and font, the second screen's place. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
 | `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
 
 Settings and catalogues of older versions (eframe's `app.ron`,
