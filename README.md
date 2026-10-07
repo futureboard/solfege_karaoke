@@ -24,9 +24,11 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | | |
 |---|---|
 | ![Song search](docs/screenshots/songs.png) | ![Mixer](docs/screenshots/mixer.png) |
-| Song search overlay (`/`) | Mixer (`M`) |
-| ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Count-in](docs/screenshots/count-in.png) |
-| SoundFonts per channel (`S`) | Four-beat count-in after a long rest |
+| Song search overlay (`/`) | Mixer panel (`M`) |
+| ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Sounds per instrument](docs/screenshots/instruments.png) |
+| SoundFonts per channel (`S`) | A sound for any GM instrument |
+| ![Count-in](docs/screenshots/count-in.png) | |
+| Four-beat count-in after a long rest | |
 
 ## What is in here
 
@@ -47,18 +49,23 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   finished lines drift up, the next ones wait below. A title card shows
   before the singing starts and four dots count in, one per beat, after
   a long rest.
-- **Command overlay.** Everything except singing lives in one panel over
-  the stage: songs, queue, commands, mixer, sounds and settings. Type to
-  filter, arrows to move, Enter to act.
+- **Command overlay.** Songs, queue, commands, sounds and settings live
+  in one panel over the stage. Type to filter, arrows to move, Enter to
+  act.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
   one searchable list, with favourites and play counts; songs can be
   queued.
 - **Key and tempo.** Change key by semitones (the drums stay put) and
   tempo from 50 % to 150 %; BPM and key are shown live.
-- **Mixer.** A strip per MIDI part in use, per drum-kit piece, reverb and
-  chorus returns and master: gain, pan, mute, solo and meters.
+- **Mixer.** Its own panel, docked under the lyrics: all 16 MIDI channels
+  (channel 10 is the fader for the whole drum kit), each drum-kit piece,
+  reverb and chorus returns and master, with gain, pan, mute, solo and
+  meters.
 - **SoundFont rack.** Up to eight SoundFonts (or SFZ instruments). Route
-  each MIDI channel to any of them and pin a different sound on a channel.
+  each MIDI channel to any of them, pin a different sound on a channel,
+  or choose the sound of any of the 128 General MIDI instruments, from
+  any font, for whichever channel plays it.
+- **Drum kit lock.** Lock channel 10 to one kit; songs cannot change it.
 
 ### Keyboard
 
@@ -66,7 +73,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 |---|---|---|---|
 | `Space` | play / pause | `/` | search songs |
 | `←` `→` | back / forward 5 s | `Q` | queue |
-| `[` `]` | key down / up | `M` | mixer |
+| `[` `]` | key down / up | `M` | mixer panel |
 | `,` `.` | slower / faster | `S` | sounds (SoundFonts) |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |

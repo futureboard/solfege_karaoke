@@ -8,7 +8,6 @@ mod browse;
 mod commands;
 mod settings;
 mod sounds;
-mod mixer;
 
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Key, Margin, Modifiers, Rect, Sense, Shadow, Stroke, pos2, vec2};
 
@@ -25,17 +24,15 @@ pub enum Page {
     Songs,
     Queue,
     Commands,
-    Mixer,
     Sounds,
     Settings,
     Browse,
 }
 
-const TABS: [(Page, &str); 6] = [
+const TABS: [(Page, &str); 5] = [
     (Page::Songs, "เพลง"),
     (Page::Queue, "คิว"),
     (Page::Commands, "คำสั่ง"),
-    (Page::Mixer, "มิกเซอร์"),
     (Page::Sounds, "เสียง"),
     (Page::Settings, "ตั้งค่า"),
 ];
@@ -91,7 +88,7 @@ impl Overlay {
     }
 
     fn is_list(&self) -> bool {
-        !matches!(self.page, Page::Mixer | Page::Sounds | Page::Settings)
+        !matches!(self.page, Page::Sounds | Page::Settings)
     }
 }
 
@@ -108,7 +105,7 @@ fn items(app: &KaraokeApp, ov: &Overlay) -> Vec<Item> {
             .collect(),
         Page::Commands => commands::ALL.iter().filter(|c| c.matches(app, &q)).map(|&c| Item::Cmd(c)).collect(),
         Page::Browse => ov.browse.as_ref().map(|b| b.entries(&ov.query).into_iter().map(Item::Entry).collect()).unwrap_or_default(),
-        Page::Mixer | Page::Sounds | Page::Settings => Vec::new(),
+        Page::Sounds | Page::Settings => Vec::new(),
     }
 }
 
@@ -233,7 +230,7 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
         })
         .inner;
 
-    let wide = if ov.page == Page::Mixer { 1240.0 } else { 760.0 };
+    let wide = if ov.page == Page::Sounds { 900.0 } else { 760.0 };
     let width = (screen.width() - 48.0).min(wide);
     let max_list = (screen.height() * 0.58).max(160.0);
     let mut result = Outcome::Stay;
@@ -254,7 +251,6 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                     }
                     divider(ui);
                     match ov.page {
-                        Page::Mixer => mixer::show(app, ui),
                         Page::Sounds => {
                             if let Some((target, start)) = sounds::show(app, ui, max_list) {
                                 ov.browse(target, start);
@@ -548,7 +544,6 @@ fn footer(page: Page, ui: &mut egui::Ui) {
         Page::Commands => &[("↵", "ทำคำสั่ง"), ("Tab", "หน้าถัดไป")],
         Page::Browse => &[("↵", "เปิด / เลือก"), ("Esc", "กลับ")],
         Page::Sounds => &[("S", "เปิดหน้านี้"), ("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
-        Page::Mixer => &[("ลาก", "ปรับระดับ / แพน"), ("ดับเบิลคลิก", "ค่าเริ่มต้น"), ("M S", "ปิดเสียง / โซโล่")],
         Page::Settings => &[("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
     };
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());

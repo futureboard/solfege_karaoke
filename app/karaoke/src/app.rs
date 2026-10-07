@@ -10,7 +10,7 @@ use solfege_songdb::Song;
 use solfege_synth::engine::PlayState;
 
 use crate::library::{self, Library};
-use crate::synth::{Synth, SynthEvent};
+use crate::synth::{InstrumentSound, Synth, SynthEvent};
 use crate::timeline::Timeline;
 use crate::ui::overlay::{Overlay, Page};
 
@@ -29,6 +29,10 @@ pub struct Settings {
     pub soundfonts: Vec<PathBuf>,
     /// Font index per MIDI channel.
     pub routing: [usize; 16],
+    /// Drum kit locked on channel 10, as (bank, program).
+    pub drum_lock: Option<(u16, u8)>,
+    /// Sounds chosen per GM instrument.
+    pub instruments: Vec<SavedInstrument>,
     pub device: Option<String>,
     pub volume: f32,
     /// Lyric size relative to the stage height.
@@ -44,12 +48,25 @@ impl Default for Settings {
             soundfont: None,
             soundfonts: Vec::new(),
             routing: [0; 16],
+            drum_lock: None,
+            instruments: Vec::new(),
             device: None,
             volume: 0.8,
             lyric_scale: 1.0,
             lyric_offset_ms: 0,
         }
     }
+}
+
+/// A GM instrument's sound, saved by font file so it survives the rack
+/// being reordered.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SavedInstrument {
+    /// GM program 0..127.
+    pub instrument: u8,
+    pub font: PathBuf,
+    pub bank: u16,
+    pub program: u8,
 }
 
 /// Command-line choices; they win over saved settings for this run.
@@ -89,8 +106,10 @@ pub struct KaraokeApp {
     pub toasts: Vec<Toast>,
     /// Full screen with the bottom bar hidden: only the lyrics.
     pub stage_only: bool,
-    /// Song search, queue, commands, mixer and settings all live here.
+    /// Song search, queue, commands, sounds and settings all live here.
     pub overlay: Option<Overlay>,
+    /// The mixer panel, docked above the bottom bar.
+    pub mixer_open: bool,
     pub devices: Vec<String>,
     /// Seek bar position while it is being dragged.
     pub scrub: Option<f64>,
@@ -120,6 +139,7 @@ impl KaraokeApp {
             toasts: Vec::new(),
             stage_only: false,
             overlay: None,
+            mixer_open: false,
             devices: Vec::new(),
             scrub: None,
             pending_song: launch.song,
@@ -145,6 +165,13 @@ impl KaraokeApp {
             }
         }
         app.synth.set_routing(app.settings.routing);
+        app.synth.set_drum_lock(app.settings.drum_lock);
+        for saved in app.settings.instruments.clone() {
+            if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
+                let sound = InstrumentSound { font, bank: saved.bank, program: saved.program };
+                app.synth.set_instrument(saved.instrument, Some(sound));
+            }
+        }
         if app.synth.fonts().is_empty() {
             app.toast_error("ยังไม่มี SoundFont (.sf2) — เพิ่มได้ที่แท็บ เสียง (S)".into());
         }
@@ -345,7 +372,8 @@ impl KaraokeApp {
             return self.open(Page::Queue);
         }
         if pressed(Key::M) {
-            return self.open(Page::Mixer);
+            self.mixer_open = !self.mixer_open;
+            return;
         }
         if pressed(Key::S) {
             return self.open(Page::Sounds);
@@ -379,6 +407,8 @@ impl KaraokeApp {
         }
         if self.stage_only && pressed(Key::Escape) {
             self.set_stage_only(ctx, false);
+        } else if self.mixer_open && pressed(Key::Escape) {
+            self.mixer_open = false;
         }
     }
 
@@ -393,8 +423,6 @@ impl eframe::App for KaraokeApp {
         self.poll(ctx);
         self.shortcuts(ctx);
         self.settings.volume = self.synth.volume();
-        self.settings.soundfonts = self.synth.font_paths();
-        self.settings.routing = self.synth.routing();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -402,6 +430,19 @@ impl eframe::App for KaraokeApp {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        // The SoundFont rack lives in the synth; copy it out to save.
+        self.settings.soundfonts = self.synth.font_paths();
+        self.settings.routing = self.synth.routing();
+        self.settings.drum_lock = self.synth.drum_lock();
+        let paths = self.synth.font_paths();
+        self.settings.instruments = self
+            .synth
+            .instruments()
+            .iter()
+            .filter_map(|(&instrument, s)| {
+                Some(SavedInstrument { instrument, font: paths.get(s.font)?.clone(), bank: s.bank, program: s.program })
+            })
+            .collect();
         eframe::set_value(storage, SETTINGS_KEY, &self.settings);
         if let Err(e) = self.library.save() {
             self.toast_error(format!("บันทึกฐานข้อมูลเพลงไม่ได้: {e}"));

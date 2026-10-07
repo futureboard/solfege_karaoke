@@ -364,6 +364,8 @@ pub struct Slot {
     pub(super) strips: Vec<Strip>,
     pub(super) groups: NoteGroups,
     pub(super) peak: [f32; 2],
+    /// Preset per program on filtered channels; see `SlotParams::filtered`.
+    pub(super) program_map: Box<[u16; 128]>,
 }
 
 /// Map Bank Select MSB/LSB + Program Change onto an SF2 preset, accepting the
@@ -438,6 +440,7 @@ impl Slot {
             age: 0,
             strips: strips.iter().map(|&p| Strip::new(p.clamped())).collect(),
             groups,
+            program_map: Box::new([super::NO_PRESET; 128]),
             peak: [0.0; 2],
         }
     }
@@ -460,9 +463,26 @@ impl Slot {
     }
 
     /// GM convention: on a multitimbral slot channel 10 defaults to the drum kit.
+    /// Program a channel plays (GM default: 0).
+    fn program(&self, ch: u8) -> u8 {
+        self.ch[ch as usize].program.unwrap_or(0) & 127
+    }
+
+    /// Whether new notes on `ch` belong to this slot (program filter).
+    pub(super) fn accepts(&self, ch: u8) -> bool {
+        let p = &self.params;
+        p.filtered & (1 << (ch & 15)) == 0 || p.programs & (1u128 << self.program(ch)) != 0
+    }
+
     pub(super) fn preset_for(&self, ch: u8) -> usize {
         if let Some(p) = self.ch[ch as usize].locked {
             return p;
+        }
+        if self.params.filtered & (1 << (ch & 15)) != 0 {
+            let mapped = self.program_map[self.program(ch) as usize];
+            if mapped != super::NO_PRESET && (mapped as usize) < self.inst.presets.len() {
+                return mapped as usize;
+            }
         }
         if let Some(p) = self.ch[ch as usize].preset {
             return p;
@@ -494,6 +514,9 @@ impl Slot {
 
     pub(super) fn note_on(&mut self, ch: u8, key: u8, vel: u8, sr: f32) {
         let p = self.params;
+        if !self.accepts(ch) {
+            return;
+        }
         if key < p.key_lo || key > p.key_hi || vel < p.vel_lo || vel > p.vel_hi {
             return;
         }

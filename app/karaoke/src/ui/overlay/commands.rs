@@ -111,7 +111,8 @@ impl Cmd {
             Cmd::Songs => "ค้นหาเพลง".into(),
             Cmd::Queue => format!("ดูคิวเพลง ({})", app.queue.len()),
             Cmd::ClearQueue => "ล้างคิว".into(),
-            Cmd::Mixer => "มิกเซอร์".into(),
+            Cmd::Mixer if app.mixer_open => "ปิดมิกเซอร์".into(),
+            Cmd::Mixer => "เปิดมิกเซอร์".into(),
             Cmd::ResetMixer => "รีเซ็ตมิกเซอร์แชนแนลของเพลงนี้".into(),
             Cmd::Favorite => match &app.now {
                 Some(n) if app.library.is_favorite(&n.entry.uid) => format!("เอาออกจากเพลงโปรด: {}", n.entry.title),
@@ -244,7 +245,10 @@ pub fn run(app: &mut KaraokeApp, ov: &mut Overlay, cmd: Cmd, ctx: &egui::Context
             app.queue.clear();
             Outcome::Stay
         }
-        Cmd::Mixer => Outcome::Goto(Page::Mixer),
+        Cmd::Mixer => {
+            app.mixer_open = !app.mixer_open;
+            Outcome::Close
+        }
         Cmd::ResetMixer => {
             app.synth.reset_channels();
             Outcome::Stay

@@ -1,6 +1,8 @@
-//! Mixer: a strip for every MIDI part the song uses, one for each piece of
-//! the drum kit, the reverb and chorus returns, and the master. Strips are
-//! the engine's own (gain, pan, mute, solo) with live meters.
+//! The mixer: a panel of its own, docked above the bottom bar so the
+//! lyrics stay visible. Always 16 channel strips (channel 10 is the fader
+//! for the whole drum kit), then each piece of the kit, the reverb and
+//! chorus returns and the master. Strips are the engine's own (gain, pan,
+//! mute, solo) with live meters.
 
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Margin, Painter, Rect, Sense, Stroke, pos2, vec2};
 use solfege_synth::engine::mixer::StripParams;
@@ -8,12 +10,14 @@ use solfege_synth::engine::mixer::StripParams;
 use crate::app::KaraokeApp;
 use crate::icons;
 use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, RAISED, SUNG, TEXT};
-use crate::synth::{KIT, StripId, kit_name, volume_db};
+use crate::synth::{DRUM_CH, KIT, StripId, kit_name, volume_db};
 
-const W: f32 = 54.0;
-const H: f32 = 300.0;
-const GAP: f32 = 4.0;
-const GROUP_GAP: f32 = 18.0;
+/// Panel height, strips included.
+pub const HEIGHT: f32 = 336.0;
+const H: f32 = 270.0;
+const GAP: f32 = 3.0;
+const GROUP_GAP: f32 = 14.0;
+const STRIPS: f32 = 16.0 + KIT as f32 + 3.0;
 /// Fader range in dB.
 const MIN_DB: f32 = -60.0;
 const MAX_DB: f32 = 12.0;
@@ -45,60 +49,66 @@ struct Column {
     kind: Kind,
     number: String,
     name: String,
+    /// The song plays on this strip (others are drawn dimmed).
+    used: bool,
 }
 
 pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let used = app.synth.channels_used();
     let channels: Vec<Column> = (0..16)
-        .filter(|&ch| ch != 9 && used & (1 << ch) != 0)
         .map(|ch| Column {
             kind: Kind::Strip(StripId::Channel(ch)),
-            number: (ch + 1).to_string(),
-            name: app.synth.channel_sound(ch).unwrap_or("—").to_string(),
+            number: if ch == DRUM_CH { format!("{} 10", icons::DRUM) } else { (ch + 1).to_string() },
+            name: app.synth.channel_sound(ch).unwrap_or(if ch == DRUM_CH { "Drums" } else { "—" }).to_string(),
+            used: used & (1 << ch) != 0,
         })
         .collect();
-    let kit: Vec<Column> =
-        (0..KIT).map(|g| Column { kind: Kind::Strip(StripId::Kit(g)), number: icons::DRUM.into(), name: kit_name(g).into() }).collect();
+    let drums = used & (1 << DRUM_CH) != 0;
+    let kit: Vec<Column> = (0..KIT)
+        .map(|g| Column { kind: Kind::Strip(StripId::Kit(g)), number: icons::DRUM.into(), name: kit_name(g).into(), used: drums })
+        .collect();
     let fx = vec![
-        Column { kind: Kind::Reverb, number: "FX".into(), name: "Reverb".into() },
-        Column { kind: Kind::Chorus, number: "FX".into(), name: "Chorus".into() },
+        Column { kind: Kind::Reverb, number: "FX".into(), name: "Reverb".into(), used: true },
+        Column { kind: Kind::Chorus, number: "FX".into(), name: "Chorus".into(), used: true },
     ];
-    let master = vec![Column { kind: Kind::Master, number: icons::VOLUME.into(), name: "Master".into() }];
-    let groups: [(&str, Vec<Column>); 4] = [("แชนแนล", channels), ("กลอง", kit), ("เอฟเฟกต์", fx), ("รวม", master)];
+    let master = vec![Column { kind: Kind::Master, number: icons::VOLUME.into(), name: "Master".into(), used: true }];
+    let groups: [(&str, Vec<Column>); 4] = [("แชนแนล 1–16", channels), ("ชุดกลอง (ช่อง 10)", kit), ("เอฟเฟกต์", fx), ("รวม", master)];
 
-    egui::Frame::new().inner_margin(Margin::symmetric(18, 14)).show(ui, |ui| {
-        let width: f32 = groups.iter().map(|(_, c)| c.len().max(1) as f32 * (W + GAP) - GAP).sum::<f32>() + GROUP_GAP * 3.0;
-        egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
-            let (area, _) = ui.allocate_exact_size(vec2(width.max(ui.available_width()), H + 22.0), Sense::hover());
-            let mut x = area.left();
-            for (title, cols) in &groups {
-                ui.painter().text(pos2(x, area.top()), Align2::LEFT_TOP, *title, FontId::proportional(12.0), DIM);
-                let top = area.top() + 22.0;
-                if cols.is_empty() {
-                    let r = Rect::from_min_size(pos2(x, top), vec2(W, H));
-                    ui.painter().rect_stroke(r, CornerRadius::same(10), Stroke::new(1.0, LINE), egui::StrokeKind::Inside);
-                    ui.painter().text(r.center(), Align2::CENTER_CENTER, "ยังไม่มีเพลง", FontId::proportional(11.0), DIM);
-                    x += W + GROUP_GAP;
-                    continue;
-                }
-                for c in cols {
-                    column(app, ui, c, Rect::from_min_size(pos2(x, top), vec2(W, H)));
-                    x += W + GAP;
-                }
-                x += GROUP_GAP - GAP;
-            }
-        });
-        ui.add_space(10.0);
+    egui::Frame::new().inner_margin(Margin { left: 16, right: 16, top: 10, bottom: 10 }).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            if ui.add_enabled(app.synth.mixer_touched(), egui::Button::new(format!("{}  เปิดเสียงทุกช่อง", icons::VOLUME))).clicked() {
-                for id in strip_ids() {
-                    let p = app.synth.strip(id);
-                    app.synth.set_strip(id, StripParams { mute: false, solo: false, ..p });
+            ui.label(egui::RichText::new(format!("{}  มิกเซอร์", icons::MIXER)).strong().color(TEXT));
+            ui.label(egui::RichText::new("ลากเพื่อปรับ · ดับเบิลคลิกค่าเริ่มต้น · ช่อง 10 คุมกลองทั้งชุด").size(12.0).color(DIM));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button(icons::REMOVE).on_hover_text("ปิดมิกเซอร์ (M)").clicked() {
+                    app.mixer_open = false;
                 }
-            }
-            if ui.button(format!("{}  รีเซ็ตแชนแนลของเพลงนี้", icons::RESTART)).clicked() {
-                app.synth.reset_channels();
+                if ui.small_button(format!("{}  รีเซ็ตแชนแนลของเพลงนี้", icons::RESTART)).clicked() {
+                    app.synth.reset_channels();
+                }
+                if ui.add_enabled(app.synth.mixer_touched(), egui::Button::new(format!("{}  เปิดเสียงทุกช่อง", icons::VOLUME)).small()).clicked() {
+                    for id in strip_ids() {
+                        let p = app.synth.strip(id);
+                        app.synth.set_strip(id, StripParams { mute: false, solo: false, ..p });
+                    }
+                }
+            });
+        });
+        ui.add_space(6.0);
+        // Fit every strip across the window; scroll only when it is narrow.
+        let w = ((ui.available_width() - GROUP_GAP * 3.0) / STRIPS - GAP).clamp(40.0, 60.0);
+        let width = STRIPS * (w + GAP) + GROUP_GAP * 3.0;
+        egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
+            let (area, _) = ui.allocate_exact_size(vec2(width.max(ui.available_width()), H + 20.0), Sense::hover());
+            let mut x = area.left();
+            for (title, cols) in &groups {
+                ui.painter().text(pos2(x, area.top()), Align2::LEFT_TOP, *title, FontId::proportional(11.0), DIM);
+                let top = area.top() + 20.0;
+                for c in cols {
+                    column(app, ui, c, Rect::from_min_size(pos2(x, top), vec2(w, H)));
+                    x += w + GAP;
+                }
+                x += GROUP_GAP - GAP;
             }
         });
     });
@@ -112,11 +122,15 @@ fn strip_ids() -> impl Iterator<Item = StripId> {
 
 fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
     let p = ui.painter().clone();
-    p.rect_filled(rect, CornerRadius::same(10), RAISED);
+    p.rect_filled(rect, CornerRadius::same(8), if c.used { RAISED } else { style::mix(INK, RAISED, 0.5) });
     let id = ui.id().with(("mix", &c.name, &c.number));
 
     // Header: number and the sound's name.
-    p.text(rect.left_top() + vec2(8.0, 8.0), Align2::LEFT_TOP, &c.number, FontId::proportional(13.0), TEXT);
+    let head = if c.used { TEXT } else { DIM };
+    p.text(rect.left_top() + vec2(6.0, 7.0), Align2::LEFT_TOP, &c.number, FontId::proportional(12.0), head);
+    if matches!(c.kind, Kind::Strip(StripId::Channel(DRUM_CH))) && app.synth.drum_lock().is_some() {
+        p.text(rect.right_top() + vec2(-6.0, 8.0), Align2::RIGHT_TOP, icons::LOCK, FontId::proportional(11.0), SUNG);
+    }
     let name_clip = Rect::from_min_max(rect.left_top() + vec2(6.0, 26.0), pos2(rect.right() - 4.0, rect.top() + 42.0));
     p.with_clip_rect(name_clip).text(name_clip.left_center(), Align2::LEFT_CENTER, &c.name, FontId::proportional(10.0), DIM);
     let name_hover = ui.interact(name_clip, id.with("name"), Sense::hover());
@@ -151,8 +165,9 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
         }
 
         // Mute / solo.
-        let m_r = Rect::from_min_size(pos2(rect.left() + 7.0, rect.top() + 70.0), vec2(22.0, 18.0));
-        let s_r = Rect::from_min_size(pos2(rect.right() - 29.0, rect.top() + 70.0), vec2(22.0, 18.0));
+        let tw = ((rect.width() - 14.0) / 2.0).min(22.0);
+        let m_r = Rect::from_min_size(pos2(rect.left() + 5.0, rect.top() + 70.0), vec2(tw, 18.0));
+        let s_r = Rect::from_min_size(pos2(rect.right() - 5.0 - tw, rect.top() + 70.0), vec2(tw, 18.0));
         let mut params = app.synth.strip(s);
         if toggle(ui, &p, m_r, id.with("m"), "M", params.mute, DANGER).on_hover_text("ปิดเสียง").clicked() {
             params.mute = !params.mute;

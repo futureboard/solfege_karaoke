@@ -45,3 +45,5 @@ pub const MIXER: &str = "\u{e162}"; // sliders-vertical
 pub const FOLDER_PLUS: &str = "\u{e0d9}"; // folder-plus
 pub const DATABASE: &str = "\u{e0ad}"; // database
 pub const REMOVE: &str = "\u{e1b2}"; // x
+pub const LOCK: &str = "\u{e10b}"; // lock
+pub const GUITAR: &str = "\u{e55f}"; // guitar
