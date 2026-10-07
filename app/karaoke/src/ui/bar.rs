@@ -51,7 +51,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let mut x = row.right();
     let ctx = ui.ctx().clone();
     // Right to left; overlay pages, plus the mixer panel and full screen.
-    let buttons: [(&str, &str, Option<Page>, bool, &str); 7] = [
+    let buttons: [(&str, &str, Option<Page>, bool, &str); 8] = [
         if app.fullscreen {
             ("full", icons::EXIT_FULLSCREEN, None, true, "ออกจากเต็มจอ (F / Esc)")
         } else {
@@ -61,6 +61,11 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         ("commands", icons::COMMAND, Some(Page::Commands), false, "คำสั่งทั้งหมด (Ctrl+K)"),
         ("sounds", icons::FILE_MUSIC, None, false, "เสียงและ SoundFont (S)"),
         ("mixer", icons::MIXER, None, app.mixer_open || app.synth.mixer_touched(), "มิกเซอร์ (M)"),
+        if app.synth.melody_off() {
+            ("melody", icons::MIC_OFF, None, true, "เมโลดี้ร้องนำปิดอยู่ — คลิกเพื่อเปิด (V)")
+        } else {
+            ("melody", icons::MIC, None, false, "ปิดเมโลดี้ร้องนำ ช่อง 9 (V)")
+        },
         ("queue", icons::QUEUE, Some(Page::Queue), false, "คิวเพลง (Q)"),
         ("search", icons::SEARCH, Some(Page::Songs), false, "ค้นหาเพลง (/)"),
     ];
@@ -71,6 +76,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                 (Some(page), _) => app.open(page),
                 (None, "mixer") => app.mixer_open = !app.mixer_open,
                 (None, "sounds") => app.open_sound(),
+                (None, "melody") => app.toggle_melody(),
                 (None, _) => app.set_fullscreen(&ctx, !app.fullscreen),
             }
         }

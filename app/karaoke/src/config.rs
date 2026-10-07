@@ -41,6 +41,40 @@ pub struct Settings {
     pub lyric_scale: f32,
     /// Shift the lyrics against the music (positive = lyrics later).
     pub lyric_offset_ms: i32,
+    /// How the lyrics move on the stage.
+    pub lyric_mode: LyricMode,
+    /// Mute the guide melody (MIDI channel 9) in every song.
+    pub melody_off: bool,
+    /// Show the time of day on the stage.
+    pub show_clock: bool,
+}
+
+/// How the lyrics are laid out on the stage.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LyricMode {
+    /// The line being sung sits in the middle; lines scroll up as they
+    /// finish and the next one wipes in the middle.
+    #[default]
+    Scroll,
+    /// Two fixed lines in the middle, top and bottom in turn: a finished
+    /// line is replaced in place by the one after next.
+    Classic,
+}
+
+impl LyricMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            LyricMode::Scroll => "เลื่อนขึ้นแล้วปาด",
+            LyricMode::Classic => "ปาดตรงกลาง 2 บรรทัด",
+        }
+    }
+
+    pub fn other(self) -> Self {
+        match self {
+            LyricMode::Scroll => LyricMode::Classic,
+            LyricMode::Classic => LyricMode::Scroll,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -57,6 +91,9 @@ impl Default for Settings {
             volume: 0.8,
             lyric_scale: 1.0,
             lyric_offset_ms: 0,
+            lyric_mode: LyricMode::Scroll,
+            melody_off: false,
+            show_clock: true,
         }
     }
 }

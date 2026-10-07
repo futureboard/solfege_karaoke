@@ -28,6 +28,8 @@ pub const KEY_RANGE: i32 = 12;
 pub const MAX_FONTS: usize = 8;
 /// MIDI channel 10, the drum kit.
 pub const DRUM_CH: usize = 9;
+/// MIDI channel 9 (index 8): the guide melody of NCN karaoke songs.
+pub const MELODY_CH: usize = 8;
 /// Drum kit pieces with their own mixer strip (GM note groups).
 pub const KIT: usize = 6;
 
@@ -159,6 +161,8 @@ pub struct Synth {
     speed: f64,
     volume: f32,
     mixer: Mixer,
+    /// The guide melody is muted, whatever its mixer strip says.
+    melody_off: bool,
 }
 
 impl Synth {
@@ -187,6 +191,7 @@ impl Synth {
             speed: 1.0,
             volume: 0.8,
             mixer: Mixer::default(),
+            melody_off: false,
         }
     }
 
@@ -370,6 +375,7 @@ impl Synth {
     /// channel 10 strip, which acts as the fader for the whole kit.
     fn engine_params(&self, id: StripId) -> StripParams {
         match id {
+            StripId::Channel(MELODY_CH) if self.melody_off => StripParams { mute: true, ..self.strip(id) },
             StripId::Channel(_) => self.strip(id),
             StripId::Kit(g) => {
                 let kit = self.mixer.kit[g];
@@ -524,6 +530,18 @@ impl Synth {
     /// Locked drum kit as (bank, program).
     pub fn drum_lock(&self) -> Option<(u16, u8)> {
         self.drum_lock
+    }
+
+    /// The guide melody (channel 9) is muted.
+    pub fn melody_off(&self) -> bool {
+        self.melody_off
+    }
+
+    /// Mute or bring back the guide melody; a setting, so it survives the
+    /// per-song mixer reset.
+    pub fn set_melody_off(&mut self, off: bool) {
+        self.melody_off = off;
+        self.send_strip(StripId::Channel(MELODY_CH));
     }
 
     pub fn set_drum_lock(&mut self, lock: Option<(u16, u8)>) {
@@ -1041,6 +1059,55 @@ mod tests {
         assert_eq!(s.routing()[0], 0);
         assert_eq!(s.rack.len(), 2);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn guide_melody_mutes_and_outlives_the_mixer_reset() {
+        let midi = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shared/NCN/Song/Z/Z2608001.mid");
+        let Some(sf2) = crate::library::find_soundfont().filter(|_| midi.is_file()) else {
+            eprintln!("skipped: needs a .sf2 and the shared/NCN sample library");
+            return;
+        };
+        let mut s = Synth::new();
+        s.start_output(Some("\u{1}no such device\u{1}"));
+        s.add_font(sf2).unwrap();
+        let t0 = Instant::now();
+        while s.loading_soundfont() && t0.elapsed() < Duration::from_secs(60) {
+            s.poll();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        s.load_midi(&std::fs::read(&midi).unwrap(), "Z2608001").unwrap();
+        s.play();
+        s.seek(30.0);
+        let loudest = |s: &mut Synth, ms: u64| {
+            let mut peak = 0.0f32;
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_millis(ms) {
+                s.poll();
+                let (l, r) = s.master_peak();
+                peak = peak.max(l).max(r);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            peak
+        };
+        // Only the melody channel left on.
+        let melody = StripId::Channel(MELODY_CH);
+        let p = s.strip(melody);
+        s.set_strip(melody, StripParams { solo: true, ..p });
+        loudest(&mut s, 500);
+        assert!(loudest(&mut s, 3000) > 0.005, "the guide melody plays on channel 9");
+        s.set_melody_off(true);
+        assert!(s.melody_off());
+        loudest(&mut s, 2000); // the reverb tail dies away
+        assert!(loudest(&mut s, 1500) < 0.002, "muted");
+        // A new song resets the strips, not the setting.
+        s.reset_channels();
+        let p = s.strip(melody);
+        s.set_strip(melody, StripParams { solo: true, ..p });
+        loudest(&mut s, 1500);
+        assert!(loudest(&mut s, 1500) < 0.002, "still muted after the reset");
+        s.set_melody_off(false);
+        assert!(loudest(&mut s, 3000) > 0.005, "back on");
     }
 
     #[test]

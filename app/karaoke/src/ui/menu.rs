@@ -7,6 +7,7 @@ use eframe::egui::{self, RichText};
 use solfege_synth::engine::PlayState;
 
 use crate::app::KaraokeApp;
+use crate::config::LyricMode;
 use crate::icons;
 use crate::style::DIM;
 use crate::ui::overlay::Page;
@@ -95,6 +96,22 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             app.toast_error(e);
         }
     }
+    let melody_off = app.synth.melody_off();
+    if toggle(ui, melody_off, icons::MIC_OFF, "ปิดเมโลดี้ร้องนำ (ช่อง 9)", "V") {
+        app.toggle_melody();
+    }
+    ui.menu_button(format!("{}   รูปแบบเนื้อร้อง", icons::TYPE), |ui| {
+        for (mode, icon) in [(LyricMode::Scroll, icons::LYRICS_SCROLL), (LyricMode::Classic, icons::LYRICS_CLASSIC)] {
+            let on = app.settings.lyric_mode == mode;
+            if toggle(ui, on, icon, mode.label(), "L") && !on {
+                app.toggle_lyric_mode();
+            }
+        }
+        ui.separator();
+        if toggle(ui, app.settings.show_clock, icons::CLOCK, "แสดงนาฬิกา", "") {
+            app.settings.show_clock = !app.settings.show_clock;
+        }
+    });
     ui.separator();
     if item(ui, icons::SEARCH, "ค้นหาเพลง", "/") {
         app.open(Page::Songs);
@@ -114,6 +131,9 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     }
     if item(ui, icons::SETTINGS, "ตั้งค่า", "Ctrl ,") {
         app.open(Page::Settings);
+    }
+    if item(ui, icons::INFO, "เกี่ยวกับ", "") {
+        app.open(Page::About);
     }
     ui.separator();
     let (icon, label) = if app.fullscreen { (icons::EXIT_FULLSCREEN, "ออกจากเต็มจอ") } else { (icons::FULLSCREEN, "เต็มจอ") };

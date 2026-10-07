@@ -11,7 +11,7 @@ use solfege_synth::engine::mixer::{FxParams, StripParams};
 use crate::app::KaraokeApp;
 use crate::icons;
 use crate::style::{self, ACCENT, DANGER, DIM, INK, LINE, RAISED, SUNG, TEXT};
-use crate::synth::{DRUM_CH, KIT, StripId, kit_name, volume_db};
+use crate::synth::{DRUM_CH, KIT, MELODY_CH, StripId, kit_name, volume_db};
 
 /// Panel height, strips included.
 pub const HEIGHT: f32 = 364.0;
@@ -136,6 +136,9 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
     p.text(rect.left_top() + vec2(6.0, 7.0), Align2::LEFT_TOP, &c.number, FontId::proportional(12.0), head);
     if matches!(c.kind, Kind::Strip(StripId::Channel(DRUM_CH))) && app.synth.drum_lock().is_some() {
         p.text(rect.right_top() + vec2(-6.0, 8.0), Align2::RIGHT_TOP, icons::LOCK, FontId::proportional(11.0), SUNG);
+    }
+    if matches!(c.kind, Kind::Strip(StripId::Channel(MELODY_CH))) && app.synth.melody_off() {
+        p.text(rect.right_top() + vec2(-6.0, 8.0), Align2::RIGHT_TOP, icons::MIC_OFF, FontId::proportional(11.0), DANGER);
     }
     let name_clip = Rect::from_min_max(rect.left_top() + vec2(6.0, 26.0), pos2(rect.right() - 4.0, rect.top() + 42.0));
     p.with_clip_rect(name_clip).text(name_clip.left_center(), Align2::LEFT_CENTER, &c.name, FontId::proportional(10.0), DIM);
@@ -294,7 +297,7 @@ fn column(app: &mut KaraokeApp, ui: &mut egui::Ui, c: &Column, rect: Rect) {
             Kind::Master => app.synth.set_volume(n),
         }
     }
-    let muted = strip.is_some_and(|s| app.synth.strip(s).mute);
+    let muted = strip.is_some_and(|s| app.synth.strip(s).mute || (s == StripId::Channel(MELODY_CH) && app.synth.melody_off()));
     draw_fader(&p, fader, norm, peaks, resp.hovered() || resp.dragged(), muted, true);
     resp.on_hover_text(match c.kind {
         Kind::Reverb => "ระดับรีเวิร์บที่กลับเข้ามิกซ์ (มิเตอร์คือเสียงที่ส่งเข้า) · ดับเบิลคลิกเพื่อค่าเริ่มต้น",
@@ -324,6 +327,9 @@ fn column_menu(app: &mut KaraokeApp, ui: &mut egui::Ui, kind: &Kind) {
             }
             if toggle(ui, p.solo, icons::HEADPHONES, "โซโล่", "") {
                 app.synth.set_strip(s, StripParams { solo: !p.solo, ..p });
+            }
+            if s == StripId::Channel(MELODY_CH) && toggle(ui, app.synth.melody_off(), icons::MIC_OFF, "ปิดเมโลดี้ร้องนำ (ทุกเพลง)", "V") {
+                app.toggle_melody();
             }
             ui.separator();
             if item_if(ui, p.gain_db != 0.0, icons::UNDO, "ความดัง 0 dB", "") {

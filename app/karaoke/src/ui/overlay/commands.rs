@@ -33,9 +33,13 @@ pub enum Cmd {
     Rescan,
     ChooseSoundFont,
     Sounds,
+    Melody,
+    LyricMode,
+    Clock,
+    About,
 }
 
-pub const ALL: [Cmd; 22] = [
+pub const ALL: [Cmd; 26] = [
     Cmd::PlayPause,
     Cmd::Restart,
     Cmd::Stop,
@@ -58,6 +62,10 @@ pub const ALL: [Cmd; 22] = [
     Cmd::Rescan,
     Cmd::ChooseSoundFont,
     Cmd::Sounds,
+    Cmd::Melody,
+    Cmd::LyricMode,
+    Cmd::Clock,
+    Cmd::About,
 ];
 
 impl Cmd {
@@ -79,6 +87,14 @@ impl Cmd {
             Cmd::Settings => icons::SETTINGS,
             Cmd::OpenLibrary | Cmd::Rescan => icons::FOLDER_OPEN,
             Cmd::ChooseSoundFont | Cmd::Sounds => icons::FILE_MUSIC,
+            Cmd::Melody if app.synth.melody_off() => icons::MIC_OFF,
+            Cmd::Melody => icons::MIC,
+            Cmd::LyricMode => match app.settings.lyric_mode.other() {
+                crate::config::LyricMode::Scroll => icons::LYRICS_SCROLL,
+                crate::config::LyricMode::Classic => icons::LYRICS_CLASSIC,
+            },
+            Cmd::Clock => icons::CLOCK,
+            Cmd::About => icons::INFO,
         }
     }
 
@@ -125,6 +141,12 @@ impl Cmd {
             Cmd::Rescan => "สแกนคลังเพลงใหม่".into(),
             Cmd::ChooseSoundFont => "เพิ่ม SoundFont / SFZ…".into(),
             Cmd::Sounds => "เสียงและ SoundFont (แชนแนล, เครื่องดนตรี, ชุดกลอง)".into(),
+            Cmd::Melody if app.synth.melody_off() => "เปิดเมโลดี้ร้องนำ (ช่อง 9)".into(),
+            Cmd::Melody => "ปิดเมโลดี้ร้องนำ (ช่อง 9)".into(),
+            Cmd::LyricMode => format!("เนื้อร้องแบบ{}", app.settings.lyric_mode.other().label()),
+            Cmd::Clock if app.settings.show_clock => "ซ่อนนาฬิกา".into(),
+            Cmd::Clock => "แสดงนาฬิกา".into(),
+            Cmd::About => "เกี่ยวกับ Solfege Karaoke".into(),
         }
     }
 
@@ -145,6 +167,10 @@ impl Cmd {
             Cmd::Settings => "settings preferences",
             Cmd::OpenLibrary | Cmd::Rescan => "library ncn sfkar folder scan database",
             Cmd::ChooseSoundFont | Cmd::Sounds => "soundfont sf2 sfz sounds instrument routing",
+            Cmd::Melody => "melody guide vocal channel 9 mute",
+            Cmd::LyricMode => "lyrics mode scroll classic wipe",
+            Cmd::Clock => "clock time",
+            Cmd::About => "about version license credits",
         }
     }
 
@@ -161,6 +187,8 @@ impl Cmd {
             Cmd::Queue => &["Q"],
             Cmd::Mixer => &["M"],
             Cmd::Sounds => &["S"],
+            Cmd::Melody => &["V"],
+            Cmd::LyricMode => &["L"],
             Cmd::Settings => &["Ctrl", ","],
             _ => &[],
         }
@@ -277,6 +305,19 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
             app.dialogs.ask(Pick::SoundFonts, app.synth.fonts().last().map(|f| f.path.clone()));
             Outcome::Close
         }
+        Cmd::Melody => {
+            app.toggle_melody();
+            Outcome::Stay
+        }
+        Cmd::LyricMode => {
+            app.toggle_lyric_mode();
+            Outcome::Close
+        }
+        Cmd::Clock => {
+            app.settings.show_clock = !app.settings.show_clock;
+            Outcome::Close
+        }
+        Cmd::About => Outcome::Goto(Page::About),
         Cmd::Sounds => {
             app.sound = Some(crate::ui::sound::SoundPanel::new());
             Outcome::Close

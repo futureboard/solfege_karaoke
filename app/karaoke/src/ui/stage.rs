@@ -1,6 +1,12 @@
-//! The lyric stage. The line being sung sits in the middle at full size and
-//! fills with colour syllable by syllable; finished lines drift up and
-//! fade, the next ones wait below. Long rests get a three-dot count-in.
+//! The lyric stage, in one of two layouts (`LyricMode`):
+//!
+//! - **Scroll**: the line being sung sits in the middle at full size and
+//!   fills with colour syllable by syllable; finished lines drift up and
+//!   fade, the next ones wait below.
+//! - **Classic**: two fixed lines in the middle, top and bottom in turn;
+//!   when a line is done, the one after next takes its place.
+//!
+//! Long rests get a four-dot count-in. The time of day sits top right.
 
 use std::sync::Arc;
 
@@ -8,6 +14,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Galley, Painter, Pos2, Rect, S
 use solfege_synth::engine::PlayState;
 
 use crate::app::{KaraokeApp, NowPlaying};
+use crate::config::LyricMode;
 use crate::icons;
 use crate::music::transpose_key;
 use crate::style::{ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family};
@@ -29,9 +36,16 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     resp.context_menu(|ui| menu::app_menu(app, ui));
     let painter = ui.painter_at(rect);
     backdrop(&painter, rect);
+    if app.settings.show_clock {
+        wall_clock(&painter, rect);
+        // Wake up for the next minute even when nothing plays.
+        let secs = chrono::Timelike::second(&chrono::Local::now()) as u64;
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(60 - secs.min(59)));
+    }
 
     let t = app.lyric_time();
     let scale = app.settings.lyric_scale;
+    let mode = app.settings.lyric_mode;
     let key = app.synth.key();
     let state = app.synth.state();
     let Some(now) = app.now.as_mut() else {
@@ -58,7 +72,16 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         return;
     }
 
-    let target = stage_line(&tl.lines, tl.focus(t), t) as f32;
+    let target = stage_line(&tl.lines, tl.focus(t), t);
+    if mode == LyricMode::Classic {
+        let count_in = match cue {
+            Cue::CountIn { line, beats } => Some((line, beats)),
+            _ => None,
+        };
+        classic(&painter, now, rect, base, max_w, t, target, count_in);
+        return;
+    }
+    let target = target as f32;
     let id = ui.id().with("stage-scroll").with(&now.entry.id);
     let scroll = ui.ctx().animate_value_with_time(id, target, 0.35);
     let spacing = base * 1.7;
@@ -82,6 +105,32 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         };
         draw_line(&painter, now, i, pos2(rect.center().x, y), size, max_w, alpha, t, focus, count_in);
     }
+}
+
+/// Two fixed rows; line `i` always uses row `i % 2`. The row of the line
+/// being sung shows it, the other row the line after it.
+#[allow(clippy::too_many_arguments)]
+fn classic(painter: &Painter, now: &mut NowPlaying, rect: Rect, base: f32, max_w: f32, t: f64, target: usize, count_in: Option<(usize, f64)>) {
+    let spacing = base * 1.6;
+    let center = rect.center().y + base * 0.15;
+    let rows = [center - spacing / 2.0, center + spacing / 2.0];
+    let n = now.timeline.lines.len();
+    for (i, focus) in [(target, true), (target + 1, false)] {
+        if i >= n {
+            continue;
+        }
+        let beats = count_in.filter(|(line, _)| *line == i).map(|(_, b)| b);
+        let alpha = if focus { 1.0 } else { 0.8 };
+        draw_line(painter, now, i, pos2(rect.center().x, rows[i % 2]), base * 0.92, max_w, alpha, t, focus, beats);
+    }
+}
+
+/// `HH:MM`, local time, top right.
+fn wall_clock(painter: &Painter, rect: Rect) {
+    let now = chrono::Local::now().format("%H:%M").to_string();
+    let pos = pos2(rect.right() - 18.0, rect.top() + 18.0);
+    let r = painter.text(pos, Align2::RIGHT_TOP, now, FontId::proportional(17.0), TEXT.gamma_multiply(0.8));
+    painter.text(pos2(r.left() - 8.0, r.center().y), Align2::RIGHT_CENTER, icons::CLOCK, FontId::proportional(14.0), DIM);
 }
 
 /// The line to centre: the focus line, or the next one once the focus line
