@@ -1,0 +1,7 @@
+[package]
+name = "solfege_ncnparser"
+version = "0.1.0"
+edition = "2024"
+description = "Parser for NCN karaoke libraries (Song/*.mid, Lyrics/*.lyr, Cursor/*.cur)"
+
+[dependencies]
