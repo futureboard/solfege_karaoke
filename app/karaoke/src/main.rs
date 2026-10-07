@@ -25,7 +25,7 @@ use app::{KaraokeApp, Launch};
 pub const APP_ID: &str = "solfege-karaoke";
 
 const USAGE: &str = "\
-solfege-karaoke - NCN karaoke player
+solfege-karaoke - karaoke player for NCN and .sfkar songs
 
 USAGE:
     solfege-karaoke [OPTIONS] [SONG]
@@ -43,8 +43,8 @@ OPTIONS:
     -l, --list              list audio output devices, then exit
     -h, --help              show this help
 
-Without options the last used library and SoundFont are reopened; on first
-run `shared/NCN` and any .sf2 in `shared/` are picked up.
+The song catalogue, SoundFont rack and settings persist between runs. On
+first run `shared/NCN` and the first .sf2 in `shared/` are picked up.
 ";
 
 fn parse_args() -> Result<Option<Launch>> {
