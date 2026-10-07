@@ -56,8 +56,8 @@ pub struct KaraokeApp {
     pub queue: VecDeque<Song>,
     pub now: Option<NowPlaying>,
     pub toasts: Vec<Toast>,
-    /// Full screen with the bottom bar hidden: only the lyrics.
-    pub stage_only: bool,
+    /// The window is full screen (bar, mixer and overlays stay available).
+    pub fullscreen: bool,
     /// Song search, queue, commands, sounds and settings all live here.
     pub overlay: Option<Overlay>,
     /// The mixer panel, docked above the bottom bar.
@@ -95,7 +95,7 @@ impl KaraokeApp {
             queue: VecDeque::new(),
             now: None,
             toasts: Vec::new(),
-            stage_only: false,
+            fullscreen: false,
             overlay: None,
             mixer_open: false,
             sound: None,
@@ -381,10 +381,10 @@ impl KaraokeApp {
             self.play_next();
         }
         if pressed(Key::F) || pressed(Key::F11) {
-            self.set_stage_only(ctx, !self.stage_only);
+            self.set_fullscreen(ctx, !self.fullscreen);
         }
-        if self.stage_only && pressed(Key::Escape) {
-            self.set_stage_only(ctx, false);
+        if self.fullscreen && pressed(Key::Escape) {
+            self.set_fullscreen(ctx, false);
         } else if self.mixer_open && pressed(Key::Escape) {
             self.mixer_open = false;
         }
@@ -395,8 +395,8 @@ impl KaraokeApp {
         self.config.path.as_deref()
     }
 
-    pub fn set_stage_only(&mut self, ctx: &egui::Context, on: bool) {
-        self.stage_only = on;
+    pub fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
+        self.fullscreen = on;
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(on));
     }
 }
@@ -404,6 +404,10 @@ impl KaraokeApp {
 impl eframe::App for KaraokeApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll(ctx);
+        // Follow the window: full screen can also be left from the system.
+        if let Some(full) = ctx.input(|i| i.viewport().fullscreen) {
+            self.fullscreen = full;
+        }
         self.shortcuts(ctx);
         self.settings.volume = self.synth.volume();
     }

@@ -1,7 +1,10 @@
 //! Screen layout: the lyric stage fills the window, the bottom bar sits
-//! under it, and everything else opens as an overlay on top.
+//! under it, and everything else opens as an overlay on top. Full screen
+//! only changes the window; the layout stays the same. Right click opens
+//! context menus (`menu`).
 
 mod bar;
+pub mod menu;
 mod mixer;
 pub mod overlay;
 pub mod sound;
@@ -14,21 +17,19 @@ use crate::style::{self, DANGER, INK, LINE, PANEL, TEXT};
 
 pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
-    if !app.stage_only {
-        Panel::bottom("bar")
-            .frame(Frame::new().fill(INK))
-            .exact_size(bar::HEIGHT)
+    Panel::bottom("bar")
+        .frame(Frame::new().fill(INK))
+        .exact_size(bar::HEIGHT)
+        .resizable(false)
+        .show_separator_line(false)
+        .show(ui, |ui| bar::show(app, ui));
+    if app.mixer_open {
+        Panel::bottom("mixer")
+            .frame(Frame::new().fill(PANEL).stroke(Stroke::new(1.0, LINE)))
+            .exact_size(mixer::HEIGHT)
             .resizable(false)
             .show_separator_line(false)
-            .show(ui, |ui| bar::show(app, ui));
-        if app.mixer_open {
-            Panel::bottom("mixer")
-                .frame(Frame::new().fill(PANEL).stroke(Stroke::new(1.0, LINE)))
-                .exact_size(mixer::HEIGHT)
-                .resizable(false)
-                .show_separator_line(false)
-                .show(ui, |ui| mixer::show(app, ui));
-        }
+            .show(ui, |ui| mixer::show(app, ui));
     }
     egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui));
     overlay::show(app, &ctx);
@@ -42,7 +43,7 @@ fn toasts(app: &KaraokeApp, ctx: &egui::Context) {
         return;
     }
     let now = ctx.input(|i| i.time);
-    let lift = if app.stage_only { 16.0 } else { bar::HEIGHT + 12.0 };
+    let lift = bar::HEIGHT + 12.0 + if app.mixer_open { mixer::HEIGHT } else { 0.0 };
     egui::Area::new(egui::Id::new("toasts"))
         .order(egui::Order::Tooltip)
         .anchor(Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -lift))

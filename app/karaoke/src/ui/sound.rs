@@ -13,7 +13,7 @@ use crate::dialog::Pick;
 use crate::ui::overlay::keycap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum Tab {
+pub enum Tab {
     Fonts,
     Channels,
     Instruments,
@@ -29,6 +29,11 @@ pub struct SoundPanel {
 impl SoundPanel {
     pub fn new() -> Self {
         Self { tab: Tab::Fonts, family: 0, filter: String::new() }
+    }
+
+    /// Open on a given page.
+    pub fn at(tab: Tab) -> Self {
+        Self { tab, ..Self::new() }
     }
 }
 
@@ -229,8 +234,9 @@ fn fonts_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let instruments: Vec<usize> = app.synth.instruments().values().map(|s| s.font).collect();
     let mut remove = None;
     let mut all = None;
+    let mut copy = None;
     for (i, f) in app.synth.fonts().iter().enumerate() {
-        Frame::new()
+        let card = Frame::new()
             .fill(RAISED)
             .corner_radius(CornerRadius::same(12))
             .inner_margin(Margin::symmetric(14, 12))
@@ -272,6 +278,23 @@ fn fonts_tab(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                     });
                 });
             });
+        card.response.interact(Sense::click()).context_menu(|ui| {
+            use crate::ui::menu::{heading, item, item_if};
+            heading(ui, &format!("SoundFont {}  ·  {}", i + 1, f.name()));
+            if item_if(ui, f.inst.is_some() && routing.iter().any(|&r| r != i), icons::MIXER, "ใช้กับทุกแชนแนล", "") {
+                all = Some(i);
+            }
+            if item(ui, icons::COPY, "คัดลอกที่อยู่ไฟล์", "") {
+                copy = Some(f.path.display().to_string());
+            }
+            ui.separator();
+            if item(ui, icons::REMOVE, "เอาออกจาก rack", "") {
+                remove = Some(i);
+            }
+        });
+    }
+    if let Some(text) = copy {
+        ui.ctx().copy_text(text);
     }
     if let Some(i) = all {
         app.synth.route_all(i);
@@ -320,7 +343,7 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
     for ch in 0..16 {
         let active = used == 0 || used & (1 << ch) != 0;
         let font = app.synth.routing()[ch];
-        Frame::new()
+        let row = Frame::new()
             .fill(if active { RAISED } else { style::mix(INK, RAISED, 0.4) })
             .corner_radius(CornerRadius::same(10))
             .inner_margin(Margin::symmetric(12, 8))
@@ -373,6 +396,31 @@ fn channels_tab(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui)
                     });
                 });
             });
+        row.response.interact(Sense::click()).context_menu(|ui| channel_menu(app, panel, ui, ch));
+    }
+}
+
+/// Right click on a channel row: its SoundFont, its pinned sound.
+fn channel_menu(app: &mut KaraokeApp, panel: &mut SoundPanel, ui: &mut egui::Ui, ch: usize) {
+    use crate::ui::menu::{heading, item, item_if, toggle};
+    heading(ui, &if ch == DRUM_CH { "แชนแนล 10 · กลอง".to_string() } else { format!("แชนแนล {}", ch + 1) });
+    let routed = app.synth.routing()[ch];
+    let names: Vec<String> = app.synth.fonts().iter().map(|f| f.name().to_string()).collect();
+    for (i, name) in names.iter().enumerate() {
+        if toggle(ui, routed == i, icons::FILE_MUSIC, &format!("SoundFont {}  ·  {name}", i + 1), "") {
+            app.synth.set_route(ch, i);
+        }
+    }
+    ui.separator();
+    if ch == DRUM_CH {
+        if item(ui, icons::DRUM, "ชุดกลอง…", "") {
+            panel.tab = Tab::Drums;
+        }
+    } else if item_if(ui, app.synth.pin(ch).is_some(), icons::UNDO, "เลิกปักเสียง (ตามเพลง)", "") {
+        app.synth.set_pin(ch, None);
+    }
+    if item_if(ui, names.len() > 1, icons::MIXER, &format!("ใช้ SoundFont {} กับทุกแชนแนล", routed + 1), "") {
+        app.synth.route_all(routed);
     }
 }
 

@@ -27,8 +27,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | Song search overlay (`/`) | Mixer panel (`M`) |
 | ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Sounds per instrument](docs/screenshots/instruments.png) |
 | Sound settings window (`S`): SoundFont per channel | A sound for any GM instrument |
-| ![Count-in](docs/screenshots/count-in.png) | |
-| Four-beat count-in after a long rest | |
+| ![Count-in](docs/screenshots/count-in.png) | ![Context menu](docs/screenshots/context-menu.png) |
+| Four-beat count-in after a long rest | Right-click menu on the stage |
 
 ## What is in here
 
@@ -50,7 +50,13 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   before the singing starts and four dots count in, one per beat, after
   a long rest.
 - **Command overlay.** Songs, queue, commands and settings live in one
-  panel over the stage. Type to filter, arrows to move, Enter to
+  panel over the stage.
+- **Context menus.** Right click the stage or the bottom bar for
+  playback, key and tempo, every panel and full screen; right click a
+  song, a queued song, a mixer strip, a SoundFont or a channel for what
+  applies to it. Each entry shows its keyboard shortcut.
+- **Full screen** (`F`, `F11` or double-click the stage) fills the screen
+  and keeps everything: bottom bar, mixer, overlays and windows. Type to filter, arrows to move, Enter to
   act.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
   one searchable list, with favourites and play counts, kept in an SQLite
@@ -88,6 +94,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `,` `.` | slower / faster | `S` | sound settings window |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
+| right click | context menu | | |
 
 In the overlay: `Enter` reserves a song, `Shift Enter` sings it now,
 `Ctrl D` marks a favourite, `Tab` switches page and `Esc` closes.

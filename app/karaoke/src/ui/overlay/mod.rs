@@ -344,6 +344,8 @@ fn list_ui(
     }
     let moved = ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO);
     let mut clicked = None;
+    // Applied after the rows are drawn: an action can change the list.
+    let mut picked = None;
     let out = area.show_rows(ui, row_h, list.len(), |ui, range| {
         for k in range {
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
@@ -359,9 +361,17 @@ fn list_ui(
             if resp.clicked() {
                 clicked = Some((k, ui.input(|i| i.modifiers.shift)));
             }
+            resp.context_menu(|ui| {
+                if let Some(a) = row_menu(app, list[k], ui) {
+                    picked = Some((list[k], a));
+                }
+            });
         }
     });
     ov.scroll = out.state.offset.y;
+    if let Some((item, action)) = picked {
+        return Some(row_action(app, ov, item, action, ctx));
+    }
     let (k, alt) = clicked?;
     ov.cursor = k;
     Some(activate(app, ov, list[k], alt, ctx))
@@ -528,6 +538,112 @@ fn activate(app: &mut KaraokeApp, ov: &mut Overlay, item: Item, alt: bool, ctx: 
             }
         }
         Item::Cmd(c) => commands::run(app, c, ctx),
+    }
+}
+
+/// What a row's context menu can do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowAction {
+    SingNow,
+    Reserve,
+    PlayNext,
+    Favorite,
+    CopyCode,
+    CopyPath,
+    MoveUp,
+    MoveDown,
+    Remove,
+    ClearQueue,
+}
+
+fn row_menu(app: &KaraokeApp, item: Item, ui: &mut egui::Ui) -> Option<RowAction> {
+    use crate::ui::menu::{heading, item as entry, item_if};
+    let mut out = None;
+    let mut pick = |hit: bool, a: RowAction| {
+        if hit {
+            out = Some(a);
+        }
+    };
+    match item {
+        Item::Song(i) => {
+            let s = app.library.song(i);
+            heading(ui, &format!("{}  ·  {}", s.title, s.id));
+            pick(entry(ui, icons::MIC, "ร้องเลย", "Shift ↵"), RowAction::SingNow);
+            pick(entry(ui, icons::ENQUEUE, "จองคิว", "↵"), RowAction::Reserve);
+            pick(entry(ui, icons::PLAY_NEXT, "ร้องเป็นเพลงถัดไป", ""), RowAction::PlayNext);
+            let fav = app.library.is_favorite(&s.uid);
+            let (icon, label) = if fav { (icons::STAR_OFF, "เอาออกจากเพลงโปรด") } else { (icons::STAR, "เพิ่มในเพลงโปรด") };
+            pick(entry(ui, icon, label, "Ctrl D"), RowAction::Favorite);
+            ui.separator();
+            pick(entry(ui, icons::COPY, "คัดลอกรหัสเพลง", ""), RowAction::CopyCode);
+            pick(entry(ui, icons::COPY, "คัดลอกที่อยู่ไฟล์", ""), RowAction::CopyPath);
+        }
+        Item::Queued(i) => {
+            let n = app.queue.len();
+            heading(ui, &format!("คิวที่ {}  ·  {}", i + 1, app.queue[i].title));
+            pick(entry(ui, icons::MIC, "ร้องเลย", "↵"), RowAction::SingNow);
+            pick(item_if(ui, i > 0, icons::PLAY_NEXT, "ขึ้นเป็นเพลงถัดไป", "Shift ↵"), RowAction::PlayNext);
+            pick(item_if(ui, i > 0, icons::MOVE_UP, "เลื่อนขึ้น", "Alt ↑"), RowAction::MoveUp);
+            pick(item_if(ui, i + 1 < n, icons::MOVE_DOWN, "เลื่อนลง", "Alt ↓"), RowAction::MoveDown);
+            pick(entry(ui, icons::REMOVE, "เอาออกจากคิว", "Del"), RowAction::Remove);
+            ui.separator();
+            pick(entry(ui, icons::CLEAR_QUEUE, "ล้างคิวทั้งหมด", ""), RowAction::ClearQueue);
+        }
+        Item::Cmd(_) => {
+            ui.close();
+        }
+    }
+    out
+}
+
+fn row_action(app: &mut KaraokeApp, ov: &mut Overlay, item: Item, action: RowAction, ctx: &egui::Context) -> Outcome {
+    match (item, action) {
+        (Item::Song(i), RowAction::SingNow) => activate(app, ov, Item::Song(i), true, ctx),
+        (Item::Song(i), RowAction::Reserve) => activate(app, ov, Item::Song(i), false, ctx),
+        (Item::Song(i), RowAction::PlayNext) => {
+            let s = app.library.song(i).clone();
+            app.toast(format!("ร้องถัดไป: {}", s.title));
+            app.queue.push_front(s);
+            Outcome::Stay
+        }
+        (Item::Song(i), RowAction::Favorite) => {
+            let uid = app.library.song(i).uid.clone();
+            if let Err(e) = app.library.toggle_favorite(&uid) {
+                app.toast_error(e);
+            }
+            Outcome::Stay
+        }
+        (Item::Song(i), RowAction::CopyCode) => {
+            ctx.copy_text(app.library.song(i).id.clone());
+            Outcome::Stay
+        }
+        (Item::Song(i), RowAction::CopyPath) => {
+            let path = match &app.library.song(i).location {
+                solfege_songdb::Location::Ncn { midi, .. } => midi.clone(),
+                solfege_songdb::Location::Sfkar(p) => p.clone(),
+            };
+            ctx.copy_text(path.display().to_string());
+            Outcome::Stay
+        }
+        (Item::Queued(i), RowAction::SingNow) => activate(app, ov, Item::Queued(i), false, ctx),
+        (Item::Queued(i), RowAction::PlayNext) => activate(app, ov, Item::Queued(i), true, ctx),
+        (Item::Queued(i), RowAction::MoveUp) if i > 0 => {
+            app.queue.swap(i, i - 1);
+            Outcome::Stay
+        }
+        (Item::Queued(i), RowAction::MoveDown) if i + 1 < app.queue.len() => {
+            app.queue.swap(i, i + 1);
+            Outcome::Stay
+        }
+        (Item::Queued(i), RowAction::Remove) => {
+            app.queue.remove(i);
+            Outcome::Stay
+        }
+        (Item::Queued(_), RowAction::ClearQueue) => {
+            app.queue.clear();
+            Outcome::Stay
+        }
+        _ => Outcome::Stay,
     }
 }
 

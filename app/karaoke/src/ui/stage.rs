@@ -10,9 +10,9 @@ use solfege_synth::engine::PlayState;
 use crate::app::{KaraokeApp, NowPlaying};
 use crate::icons;
 use crate::music::transpose_key;
-use crate::style::{self, ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family};
+use crate::style::{ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family};
 use crate::timeline::{COUNT_IN_BEATS, Cue, Line};
-use crate::ui::{clock, overlay};
+use crate::ui::{menu, overlay};
 
 /// Once the current line is done, move the stage to the next line this
 /// long before its count-in would begin.
@@ -24,8 +24,9 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click());
     if resp.double_clicked() {
         let ctx = ui.ctx().clone();
-        app.set_stage_only(&ctx, !app.stage_only);
+        app.set_fullscreen(&ctx, !app.fullscreen);
     }
+    resp.context_menu(|ui| menu::app_menu(app, ui));
     let painter = ui.painter_at(rect);
     backdrop(&painter, rect);
 
@@ -37,9 +38,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         idle(&painter, rect, !app.synth.has_font());
         return;
     };
-    // With the bar hidden the stage carries key, tempo and time itself.
-    let readouts = app.stage_only.then(|| app.synth.duration());
-    header(&painter, rect, now, key, app.synth.speed(), t, readouts);
+    header(&painter, rect, now);
 
     let base = (rect.height() * 0.085).clamp(26.0, 110.0) * scale;
     let max_w = rect.width() - 64.0;
@@ -207,37 +206,14 @@ fn backdrop(painter: &Painter, rect: Rect) {
     painter.rect_filled(rect, 0.0, INK);
 }
 
-fn header(painter: &Painter, rect: Rect, now: &NowPlaying, key: i32, speed: f64, t: f64, duration: Option<f64>) {
+fn header(painter: &Painter, rect: Rect, now: &NowPlaying) {
     let pad = 18.0;
-    let font = FontId::proportional(15.0);
     let title = if now.entry.artist.is_empty() {
         now.entry.title.clone()
     } else {
         format!("{}  —  {}", now.entry.title, now.entry.artist)
     };
-    painter.text(rect.left_top() + vec2(pad, pad), Align2::LEFT_TOP, title, font.clone(), DIM);
-    let Some(d) = duration else { return };
-
-    // Right to left: time (full screen only), tempo with a beat light, key.
-    let mut x = rect.right() - pad;
-    let y = rect.top() + pad;
-    let mut item = |text: String, color: Color32| {
-        let r = painter.text(pos2(x, y), Align2::RIGHT_TOP, text, font.clone(), color);
-        x = r.left() - 22.0;
-        r
-    };
-    item(format!("{}  {} / {}", icons::TIMER, clock(t), clock(d)), DIM);
-    let bpm = now.timeline.tempo.bpm(t) * speed;
-    let r = item(format!("{}  {bpm:.0} BPM", icons::METRONOME), ACCENT);
-    // Flashes on every quarter note and fades through the beat.
-    let phase = now.timeline.tempo.quarters(t).rem_euclid(1.0) as f32;
-    let light = pos2(r.left() - 9.0, r.center().y);
-    painter.circle_filled(light, 4.0, style::mix(DIM.gamma_multiply(0.4), SUNG_HOT, (1.0 - phase).powi(3)));
-    x = light.x - 22.0;
-    if let Some(k) = &now.song.meta.key {
-        let shown = transpose_key(k, key).unwrap_or_else(|| k.clone());
-        painter.text(pos2(x, y), Align2::RIGHT_TOP, format!("{}  คีย์ {shown}", icons::KEY), font, ACCENT);
-    }
+    painter.text(rect.left_top() + vec2(pad, pad), Align2::LEFT_TOP, title, FontId::proportional(15.0), DIM);
 }
 
 fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i32) {

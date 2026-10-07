@@ -107,8 +107,8 @@ impl Cmd {
             Cmd::Faster => format!("เร็วขึ้น  ·  {}", speed(app.synth.speed() + 0.05)),
             Cmd::Slower => format!("ช้าลง  ·  {}", speed(app.synth.speed() - 0.05)),
             Cmd::SpeedReset => "ความเร็วปกติ (100%)".into(),
-            Cmd::Fullscreen if app.stage_only => "ออกจากเต็มจอ".into(),
-            Cmd::Fullscreen => "เต็มจอ (เฉพาะเนื้อร้อง)".into(),
+            Cmd::Fullscreen if app.fullscreen => "ออกจากเต็มจอ".into(),
+            Cmd::Fullscreen => "เต็มจอ".into(),
             Cmd::Songs => "ค้นหาเพลง".into(),
             Cmd::Queue => format!("ดูคิวเพลง ({})", app.queue.len()),
             Cmd::ClearQueue => "ล้างคิว".into(),
@@ -237,7 +237,7 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
             Outcome::Stay
         }
         Cmd::Fullscreen => {
-            app.set_stage_only(ctx, !app.stage_only);
+            app.set_fullscreen(ctx, !app.fullscreen);
             Outcome::Close
         }
         Cmd::Songs => Outcome::Goto(Page::Songs),

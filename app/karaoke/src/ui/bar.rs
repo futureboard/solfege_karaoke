@@ -19,7 +19,9 @@ pub const HEIGHT: f32 = 64.0;
 const SEEK: f32 = 12.0;
 
 pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
-    let (full, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
+    // Right click on the bar's empty space: the app menu.
+    let (full, bg) = ui.allocate_exact_size(ui.available_size(), Sense::click());
+    bg.context_menu(|ui| crate::ui::menu::app_menu(app, ui));
     seek(app, ui, Rect::from_min_size(full.min, vec2(full.width(), SEEK)));
     let row = Rect::from_min_max(pos2(full.left() + 20.0, full.top() + SEEK), pos2(full.right() - 20.0, full.bottom() - 2.0));
     let y = row.center().y;
@@ -50,7 +52,11 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     // Right to left; overlay pages, plus the mixer panel and full screen.
     let buttons: [(&str, &str, Option<Page>, bool, &str); 7] = [
-        ("full", icons::FULLSCREEN, None, false, "เต็มจอ (F)"),
+        if app.fullscreen {
+            ("full", icons::EXIT_FULLSCREEN, None, true, "ออกจากเต็มจอ (F / Esc)")
+        } else {
+            ("full", icons::FULLSCREEN, None, false, "เต็มจอ (F)")
+        },
         ("settings", icons::SETTINGS, Some(Page::Settings), false, "ตั้งค่า (Ctrl+,)"),
         ("commands", icons::COMMAND, Some(Page::Commands), false, "คำสั่งทั้งหมด (Ctrl+K)"),
         ("sounds", icons::FILE_MUSIC, None, false, "เสียงและ SoundFont (S)"),
@@ -65,7 +71,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                 (Some(page), _) => app.open(page),
                 (None, "mixer") => app.mixer_open = !app.mixer_open,
                 (None, "sounds") => app.open_sound(),
-                (None, _) => app.set_stage_only(&ctx, true),
+                (None, _) => app.set_fullscreen(&ctx, !app.fullscreen),
             }
         }
         if id == "queue" && !app.queue.is_empty() {
@@ -233,6 +239,15 @@ fn tempo(app: &mut KaraokeApp, ui: &mut egui::Ui, rect: Rect) {
     let value = app.bpm().map_or("–".to_string(), |b| format!("{b:.0}"));
     let label = if (s - 1.0).abs() < 1e-3 { "BPM".to_string() } else { format!("BPM  {:.0}%", s * 100.0) };
     let d = readout(ui, "tempo", rect, &label, &value, "ความเร็วทีละ 5%  , .");
+    // A light beside the value flashes on every quarter note.
+    if let Some(now) = &app.now
+        && app.synth.state() == solfege_synth::engine::PlayState::Playing
+    {
+        let phase = now.timeline.tempo.quarters(app.synth.time()).rem_euclid(1.0) as f32;
+        let w = ui.painter().layout_no_wrap(value.clone(), FontId::proportional(15.0), TEXT).size().x;
+        let light = pos2(rect.center().x + w / 2.0 + 8.0, rect.center().y + 7.0);
+        ui.painter().circle_filled(light, 3.0, crate::style::mix(DIM.gamma_multiply(0.4), crate::style::SUNG_HOT, (1.0 - phase).powi(3)));
+    }
     if d != 0 {
         app.synth.set_speed(s + d as f64 * 0.05);
     }
