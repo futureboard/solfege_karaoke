@@ -54,6 +54,9 @@ pub struct Settings {
     pub show_clock: bool,
     /// Colours of the lyrics and their wipe.
     pub lyric_colors: LyricColors,
+    /// Thickness of the rim around the lyric letters, relative to the
+    /// default (0 = no rim).
+    pub lyric_outline: f32,
     /// Font file for the lyrics (`.ttf`, `.otf`, `.ttc`); `None` = Noto Sans Thai.
     pub lyric_font: Option<PathBuf>,
 }
@@ -138,6 +141,7 @@ impl Default for Settings {
             melody_off: false,
             show_clock: true,
             lyric_colors: LyricColors::default(),
+            lyric_outline: 1.0,
             lyric_font: None,
         }
     }
@@ -254,6 +258,7 @@ mod tests {
         s.drum_lock = Some((128, 16));
         s.fx.reverb_room = 0.9;
         s.lyric_colors = LyricColors::PRESETS[2].1;
+        s.lyric_outline = 2.5;
         s.lyric_font = Some(PathBuf::from("/fonts/lyrics.ttf"));
         file.save(&s).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -270,6 +275,7 @@ mod tests {
         assert_eq!(back.fx.reverb_room, 0.9);
         assert!(back.lyric_colors == LyricColors::PRESETS[2].1);
         assert_eq!(back.lyric_font, s.lyric_font);
+        assert_eq!(back.lyric_outline, 2.5);
 
         // Hand-edited with fields missing: defaults fill in.
         std::fs::write(&path, r#"{ "volume": 0.3 }"#).unwrap();
@@ -278,6 +284,7 @@ mod tests {
         assert_eq!(partial.volume, 0.3);
         assert_eq!(partial.lyric_scale, 1.0);
         assert!(partial.lyric_colors == LyricColors::default());
+        assert_eq!(partial.lyric_outline, 1.0);
 
         // Broken: reported, defaults used, the file kept aside.
         std::fs::write(&path, "{ not json").unwrap();

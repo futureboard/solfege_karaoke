@@ -9,7 +9,7 @@ pub mod menu;
 mod mixer;
 pub mod overlay;
 pub mod sound;
-mod stage;
+pub mod stage;
 
 use eframe::egui::{self, Align2, CornerRadius, FontId, Frame, Margin, Panel, RichText, Stroke};
 

@@ -344,7 +344,15 @@ fn lyrics(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     card(ui, |ui| {
         row(ui, "ขนาดตัวอักษร", "เทียบกับความสูงของจอ", |ui| {
             ui.spacing_mut().slider_width = 200.0;
-            ui.add(egui::Slider::new(&mut app.settings.lyric_scale, 0.6..=1.6).custom_formatter(|v, _| format!("{:.0}%", v * 100.0)));
+            ui.add(percent(egui::Slider::new(&mut app.settings.lyric_scale, 0.6..=1.6)));
+        });
+        ui.separator();
+        row(ui, "ขอบตัวอักษร", "ความหนาของขอบรอบเนื้อร้อง (0 = ไม่มี) สีตั้งได้ใน \"สีเนื้อร้อง\"", |ui| {
+            if ui.add_enabled(app.settings.lyric_outline != 1.0, egui::Button::new(icons::UNDO)).on_hover_text("กลับเป็นค่าเริ่มต้น (100%)").clicked() {
+                app.settings.lyric_outline = 1.0;
+            }
+            ui.spacing_mut().slider_width = 200.0;
+            ui.add(percent(egui::Slider::new(&mut app.settings.lyric_outline, 0.0..=4.0)).step_by(0.05));
         });
         sample(ui, app);
         ui.separator();
@@ -415,6 +423,13 @@ fn lyrics(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     });
 }
 
+/// Show and type a slider's value as a percentage.
+fn percent(slider: egui::Slider<'_>) -> egui::Slider<'_> {
+    slider
+        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0))
+        .custom_parser(|s| s.trim().trim_end_matches('%').trim().parse::<f64>().ok().map(|v| v / 100.0))
+}
+
 /// The lyric sample at the chosen size, colours and font, half sung.
 fn sample(ui: &mut egui::Ui, app: &KaraokeApp) {
     let c = app.settings.lyric_colors;
@@ -425,10 +440,7 @@ fn sample(ui: &mut egui::Ui, app: &KaraokeApp) {
     p.rect_filled(rect, CornerRadius::same(10), INK);
     let g = p.layout_no_wrap("ตัวอย่างเนื้อร้อง".into(), FontId::new(size, lyrics_family()), UNSUNG);
     let pos = rect.center() - g.size() / 2.0;
-    let o = (size * 0.035).clamp(1.0, 3.5);
-    for d in [vec2(-o, 0.0), vec2(o, 0.0), vec2(0.0, -o), vec2(0.0, o)] {
-        p.galley_with_override_text_color(pos + d, g.clone(), rgb(c.outline));
-    }
+    crate::ui::stage::outline(p, &g, pos, size, app.settings.lyric_outline, rgb(c.outline));
     p.galley_with_override_text_color(pos, g.clone(), rgb(c.unsung));
     let (done, edge) = (pos.x + g.size().x * 0.4, pos.x + g.size().x * 0.5);
     let clip = |x0: f32, x1: f32| Rect::from_min_max(pos2(x0, rect.top()), pos2(x1, rect.bottom()));

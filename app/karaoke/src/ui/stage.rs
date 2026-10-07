@@ -10,14 +10,14 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{self, Align2, Color32, FontId, Galley, Painter, Pos2, Rect, Sense, Stroke, pos2, vec2};
+use eframe::egui::{self, Align2, Color32, FontId, Galley, Painter, Pos2, Rect, Sense, Stroke, Vec2, pos2, vec2};
 use solfege_synth::engine::PlayState;
 
 use crate::app::{KaraokeApp, NowPlaying};
 use crate::config::LyricMode;
 use crate::icons;
 use crate::music::transpose_key;
-use crate::style::{ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family};
+use crate::style::{ACCENT, DIM, INK, SUNG, SUNG_HOT, TEXT, UNSUNG, lyrics_family, mix};
 use crate::timeline::{COUNT_IN_BEATS, Cue, Line};
 use crate::ui::{menu, overlay};
 
@@ -28,6 +28,8 @@ struct Palette {
     sung: Color32,
     wipe: Color32,
     outline: Color32,
+    /// Rim thickness relative to the default.
+    rim: f32,
 }
 
 const PALETTE: &str = "lyric-palette";
@@ -36,7 +38,7 @@ fn palette(painter: &Painter) -> Palette {
     painter
         .ctx()
         .data(|d| d.get_temp(egui::Id::new(PALETTE)))
-        .unwrap_or(Palette { unsung: UNSUNG, sung: SUNG, wipe: SUNG_HOT, outline: INK })
+        .unwrap_or(Palette { unsung: UNSUNG, sung: SUNG, wipe: SUNG_HOT, outline: INK, rim: 1.0 })
 }
 
 /// Once the current line is done, move the stage to the next line this
@@ -56,7 +58,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     backdrop(&painter, rect);
     let c = app.settings.lyric_colors;
     let rgb = |v: [u8; 3]| Color32::from_rgb(v[0], v[1], v[2]);
-    let palette = Palette { unsung: rgb(c.unsung), sung: rgb(c.sung), wipe: rgb(c.wipe), outline: rgb(c.outline) };
+    let palette = Palette { unsung: rgb(c.unsung), sung: rgb(c.sung), wipe: rgb(c.wipe), outline: rgb(c.outline), rim: app.settings.lyric_outline };
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(PALETTE), palette));
     if app.settings.show_clock {
         wall_clock(&painter, rect);
@@ -226,9 +228,11 @@ fn draw_line(
     let done_x = edge(done);
     let wipe_x = done_x + (edge(done + 1) - done_x) * frac;
 
-    let a = |c: Color32| c.gamma_multiply(alpha);
+    // Faded lines blend into the (solid) backdrop rather than turning
+    // see-through, which would let the rim show through the letters.
+    let a = |c: Color32| mix(INK, c, alpha);
     let pal = palette(painter);
-    outline(painter, &galley, pos, size, a(pal.outline.gamma_multiply(0.85)));
+    outline(painter, &galley, pos, font.size, pal.rim, mix(INK, pal.outline, 0.85 * alpha));
     painter.galley_with_override_text_color(pos, galley.clone(), a(pal.unsung));
     if wipe_x > left {
         let tall = |x0: f32, x1: f32| Rect::from_min_max(pos2(x0, pos.y - size), pos2(x1, pos.y + galley.size().y + size));
@@ -266,11 +270,25 @@ fn draw_line(
     }
 }
 
-/// Dark rim around the letters so they read on any backdrop.
-fn outline(painter: &Painter, galley: &Arc<Galley>, pos: Pos2, size: f32, color: Color32) {
-    let o = (size * 0.035).clamp(1.0, 3.5);
-    for d in [vec2(-o, 0.0), vec2(o, 0.0), vec2(0.0, -o), vec2(0.0, o), vec2(o * 0.8, o * 1.6)] {
-        painter.galley_with_override_text_color(pos + d, galley.clone(), color);
+/// Dark rim around the letters so they read on any backdrop, `rim` times
+/// the default thickness (0 = none), with a drop shadow below it.
+pub fn outline(painter: &Painter, galley: &Arc<Galley>, pos: Pos2, size: f32, rim: f32, color: Color32) {
+    let o = (size * 0.035).clamp(1.0, 3.5) * rim.max(0.0);
+    if o < 0.25 {
+        return;
+    }
+    let draw = |d: Vec2| painter.galley_with_override_text_color(pos + d, galley.clone(), color);
+    draw(vec2(o * 0.8, o * 1.6));
+    // Copies of the text around a circle; a thick rim also gets inner
+    // circles so thin strokes leave no gap between the letter and the rim.
+    let mut r = o;
+    while r > 0.25 {
+        let n = ((std::f32::consts::TAU * r / 1.5).ceil() as usize).clamp(4, 48);
+        for k in 0..n {
+            let (s, c) = (k as f32 / n as f32 * std::f32::consts::TAU).sin_cos();
+            draw(vec2(c * r, s * r));
+        }
+        r -= 2.5;
     }
 }
 
@@ -299,7 +317,7 @@ fn title_card(painter: &Painter, rect: Rect, now: &NowPlaying, base: f32, key: i
         g = painter.layout_no_wrap(now.song.meta.title.clone(), FontId::new(size, lyrics_family()), pal.sung);
     }
     let pos = c - vec2(g.size().x / 2.0, g.size().y + base * 0.2);
-    outline(painter, &g, pos, size, pal.outline);
+    outline(painter, &g, pos, size, pal.rim, pal.outline);
     painter.galley(pos, g, pal.sung);
     painter.text(c + vec2(0.0, base * 0.15), Align2::CENTER_TOP, &now.song.meta.artist, FontId::new(base * 0.5, lyrics_family()), pal.unsung);
     if let Some(k) = &now.song.meta.key {

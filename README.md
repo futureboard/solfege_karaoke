@@ -68,7 +68,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   turns. A title card shows before the singing starts, four dots count
   in after a long rest, and the time of day sits in the corner.
   The lyric colours (still to sing, sung, the wipe edge, outline) come
-  from six presets or a colour picker each, and the lyrics can use any
+  from six presets or a colour picker each, the outline's thickness goes
+  from none to four times the default, and the lyrics can use any
   `.ttf` / `.otf` / `.ttc` font (letters it lacks fall back to Noto Sans
   Thai).
 - **Guide melody off** (`V`). Mutes MIDI channel 9, where NCN songs
@@ -79,7 +80,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   dragged by its title bar (double-click it to put it back).
 - **Settings.** Sections for the song library (folders, counts, rescan),
   audio output (device, volume, guide melody), lyrics (layout, size with
-  a live sample, timing, clock, font, colours), shortcuts and the data files.
+  a live sample, outline thickness, timing, clock, font, colours),
+  shortcuts and the data files.
 - **Context menus.** Right click the stage or the bottom bar for
   playback, key and tempo, every panel and full screen; right click a
   song, a queued song, a mixer strip, a SoundFont or a channel for what
@@ -193,7 +195,7 @@ under Settings):
 
 | File | What it holds |
 |---|---|
-| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size, offset, colours and font. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size, offset, outline, colours and font. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
 | `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
 
 Settings and catalogues of older versions (eframe's `app.ron`,
