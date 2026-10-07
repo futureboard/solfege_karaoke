@@ -55,9 +55,10 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
         })
         .inner;
     let size = vec2((screen.width() - 48.0).min(1060.0), (screen.height() - 96.0).clamp(360.0, 660.0));
-    egui::Area::new(egui::Id::new("sound-panel"))
+    let offset = crate::ui::popup_offset(ctx, "sound");
+    let shown = egui::Area::new(egui::Id::new("sound-panel"))
         .order(egui::Order::Foreground)
-        .anchor(Align2::CENTER_CENTER, vec2(0.0, -12.0))
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, -12.0) + offset)
         .show(ctx, |ui| {
             Frame::new()
                 .fill(PANEL)
@@ -104,6 +105,7 @@ pub fn show(app: &mut KaraokeApp, ctx: &egui::Context) {
                     });
                 });
         });
+    crate::ui::keep_popup_on_screen(ctx, "sound", shown.response.rect, 58.0);
     // Meters and "now playing" names follow the music.
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
     if clicked_outside && !crate::ui::popup_open(ctx) {
@@ -121,7 +123,9 @@ fn divider(ui: &mut egui::Ui) {
 
 /// Title row; returns true when the close button was pressed.
 fn header(app: &KaraokeApp, ui: &mut egui::Ui) -> bool {
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::hover());
+    // The header is also the handle to drag the window by.
+    let (bar, handle) = ui.allocate_exact_size(vec2(ui.available_width(), 58.0), Sense::click_and_drag());
+    crate::ui::drag_popup(ui, &handle, "sound");
     let p = ui.painter();
     p.text(pos2(bar.left() + 22.0, bar.center().y - 8.0), Align2::LEFT_CENTER, format!("{}  เสียงและ SoundFont", icons::FILE_MUSIC), FontId::proportional(17.0), TEXT);
     let fonts = app.synth.fonts().len();

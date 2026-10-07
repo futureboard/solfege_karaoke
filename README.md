@@ -44,6 +44,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | Classic layout: two lines that take turns (`L`) | About page |
 | ![A kit per drum piece](docs/screenshots/drum-pieces.png) | ![Effect editor](docs/screenshots/effects.png) |
 | Kick, snare, ... each from its own SoundFont and kit | Effect slot editor (popup over the mixer) |
+| ![Settings](docs/screenshots/settings.png) | |
+| Settings popup (`Ctrl ,`), lyrics section | |
 
 ## What is in here
 
@@ -69,7 +71,11 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   carry the vocal melody, in every song until turned back on.
 - **Overlays.** Songs and queue share one panel over the stage (`/`,
   `Q`, `Tab` between them); all commands (`Ctrl K`), settings (`Ctrl ,`)
-  and About open as popups of their own.
+  and About open as popups of their own. Every popup and window can be
+  dragged by its title bar (double-click it to put it back).
+- **Settings.** Sections for the song library (folders, counts, rescan),
+  audio output (device, volume, guide melody), lyrics (layout, size with
+  a live sample, timing, clock), shortcuts and the data files.
 - **Context menus.** Right click the stage or the bottom bar for
   playback, key and tempo, every panel and full screen; right click a
   song, a queued song, a mixer strip, a SoundFont or a channel for what

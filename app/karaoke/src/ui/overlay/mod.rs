@@ -34,7 +34,7 @@ const TABS: [(Page, &str); 2] = [(Page::Songs, "เพลง"), (Page::Queue, "�
 fn popup(page: Page) -> Option<(&'static str, &'static str, f32)> {
     match page {
         Page::Commands => Some((icons::COMMAND, "คำสั่งทั้งหมด", 640.0)),
-        Page::Settings => Some((icons::SETTINGS, "ตั้งค่า", 760.0)),
+        Page::Settings => Some((icons::SETTINGS, "ตั้งค่า", 940.0)),
         Page::About => Some((icons::INFO, "เกี่ยวกับ", 660.0)),
         Page::Songs | Page::Queue => None,
     }
@@ -48,6 +48,8 @@ pub struct Overlay {
     scroll: f32,
     /// Bring the cursor row into view this frame (it moved by keyboard).
     reveal: bool,
+    /// Section shown in the settings popup.
+    settings: settings::Section,
 }
 
 /// What an action leaves behind.
@@ -66,7 +68,7 @@ enum Item {
 
 impl Overlay {
     pub fn new(page: Page) -> Self {
-        Self { page, query: String::new(), cursor: 0, scroll: 0.0, reveal: true }
+        Self { page, query: String::new(), cursor: 0, scroll: 0.0, reveal: true, settings: settings::Section::default() }
     }
 
     fn goto(&mut self, page: Page) {
@@ -216,9 +218,15 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
     let width = (screen.width() - 48.0).min(popup(ov.page).map_or(760.0, |p| p.2));
     let max_list = (screen.height() * 0.58).max(160.0);
     let mut result = Outcome::Stay;
-    egui::Area::new(egui::Id::new("overlay"))
+    // Each popup remembers where it was dragged; songs and queue share one.
+    let key = match popup(ov.page) {
+        Some(_) => format!("{:?}", ov.page),
+        None => "songs".to_string(),
+    };
+    let offset = crate::ui::popup_offset(ctx, &key);
+    let shown = egui::Area::new(egui::Id::new("overlay"))
         .order(egui::Order::Foreground)
-        .anchor(Align2::CENTER_TOP, vec2(0.0, (screen.height() * 0.09).max(16.0)))
+        .anchor(Align2::CENTER_TOP, vec2(0.0, (screen.height() * 0.09).max(16.0)) + offset)
         .show(ctx, |ui| {
             Frame::new()
                 .fill(PANEL)
@@ -230,19 +238,19 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
                     match popup(ov.page) {
                         Some((icon, title, _)) => {
-                            if title_bar(ui, icon, title) {
+                            if title_bar(ui, icon, title, &key) {
                                 result = Outcome::Close;
                             }
                         }
                         None => {
-                            if let Some(page) = tabs(app, ov, ui) {
+                            if let Some(page) = tabs(app, ov, ui, &key) {
                                 result = Outcome::Goto(page);
                             }
                         }
                     }
                     divider(ui);
                     match ov.page {
-                        Page::Settings => settings::show(app, ui, max_list),
+                        Page::Settings => settings::show(app, ui, &mut ov.settings, max_list),
                         Page::About => about::show(app, ui, max_list),
                         _ => {
                             search_field(ov, ui);
@@ -256,6 +264,7 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                     footer(ov.page, ui);
                 });
         });
+    crate::ui::keep_popup_on_screen(ctx, &key, shown.response.rect, 48.0);
     if backdrop && matches!(result, Outcome::Stay) {
         return Outcome::Close;
     }
@@ -274,9 +283,11 @@ fn divider(ui: &mut egui::Ui) {
     ui.painter().rect_filled(rect, 0.0, LINE);
 }
 
-fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui) -> Option<Page> {
+fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui, key: &str) -> Option<Page> {
     let mut go = None;
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+    // The bar is also the handle to drag the panel by.
+    let (bar, handle) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click_and_drag());
+    crate::ui::drag_popup(ui, &handle, key);
     let p = ui.painter();
     let mut x = bar.left() + 18.0;
     let current = ov.page;
@@ -306,8 +317,10 @@ fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui) -> Option<Page> {
 
 /// Header of a popup page: icon and title, Esc and a close button.
 /// Returns true when the close button was clicked.
-fn title_bar(ui: &mut egui::Ui, icon: &str, title: &str) -> bool {
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::hover());
+fn title_bar(ui: &mut egui::Ui, icon: &str, title: &str, key: &str) -> bool {
+    // The title bar is also the handle to drag the popup by.
+    let (bar, handle) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click_and_drag());
+    crate::ui::drag_popup(ui, &handle, key);
     let p = ui.painter();
     let y = bar.center().y;
     p.text(pos2(bar.left() + 20.0, y), Align2::LEFT_CENTER, icon, FontId::proportional(17.0), SUNG);
@@ -345,7 +358,11 @@ fn search_field(ov: &mut Overlay, ui: &mut egui::Ui) {
                     .hint_text(hint)
                     .desired_width(f32::INFINITY),
             );
-            r.request_focus();
+            // Typing always goes to the search field, but not while a
+            // button is held: that would cancel dragging the panel.
+            if !ui.input(|i| i.pointer.any_down()) {
+                r.request_focus();
+            }
         });
     });
 }

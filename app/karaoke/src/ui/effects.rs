@@ -98,9 +98,10 @@ pub fn editor(app: &mut KaraokeApp, ctx: &egui::Context) {
         })
         .inner;
     let mut close = false;
-    egui::Area::new(egui::Id::new("fx-editor"))
+    let offset = crate::ui::popup_offset(ctx, "fx-editor");
+    let shown = egui::Area::new(egui::Id::new("fx-editor"))
         .order(egui::Order::Foreground)
-        .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0) + offset)
         .show(ctx, |ui| {
             Frame::new()
                 .fill(PANEL)
@@ -113,6 +114,7 @@ pub fn editor(app: &mut KaraokeApp, ctx: &egui::Context) {
                     close = editor_body(app, ui, slot);
                 });
         });
+    crate::ui::keep_popup_on_screen(ctx, "fx-editor", shown.response.rect, 40.0);
     if close || (outside && !crate::ui::popup_open(ctx)) {
         app.effect_editor = None;
     }
@@ -122,6 +124,11 @@ pub fn editor(app: &mut KaraokeApp, ctx: &egui::Context) {
 fn editor_body(app: &mut KaraokeApp, ui: &mut egui::Ui, slot: usize) -> bool {
     let mut close = false;
     let params = app.synth.inserts()[slot];
+    // The title row is also the handle to drag the editor by; registered
+    // first, so the buttons on it stay clickable.
+    let handle_rect = egui::Rect::from_min_size(ui.cursor().min - vec2(18.0, 18.0), vec2(ui.available_width() + 36.0, 50.0));
+    let handle = ui.interact(handle_rect, ui.id().with("fx-drag"), Sense::click_and_drag());
+    crate::ui::drag_popup(ui, &handle, "fx-editor");
     ui.horizontal(|ui| {
         ui.label(RichText::new(format!("{}  เอฟเฟกต์ช่อง {}", icons::EFFECTS, slot + 1)).size(16.0).strong().color(TEXT));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
