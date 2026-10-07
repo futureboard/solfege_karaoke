@@ -470,12 +470,13 @@ fn row(app: &KaraokeApp, item: Item, p: &egui::Painter, rect: Rect, selected: bo
     match item {
         Item::Song(i) => {
             let h = app.library.song(i);
-            let playing = app.now.as_ref().is_some_and(|n| n.entry.id == h.id);
+            // By file: an NCN song and its .sfkar copy share a code.
+            let playing = app.now.as_ref().is_some_and(|n| n.entry.location == h.location);
             badge(p, pos2(left + 18.0, y), h.key.as_deref().unwrap_or("–"), playing);
             if selected {
                 right = hint(p, right, y, "ร้องเลย", Some("Shift"), icons::ENTER);
                 right = hint(p, right - 14.0, y, "จองคิว", None, icons::ENTER);
-            } else if let Some(pos) = app.queue.iter().position(|q| q.id == h.id) {
+            } else if let Some(pos) = app.queue.iter().position(|q| q.location == h.location) {
                 right = p.text(pos2(right, y), Align2::RIGHT_CENTER, format!("คิว {}", pos + 1), FontId::proportional(12.0), ACCENT).left();
             }
             let stats = app.library.db.stats(&h.uid);
@@ -485,6 +486,16 @@ fn row(app: &KaraokeApp, item: Item, p: &egui::Painter, rect: Rect, selected: bo
             let mut sub = if h.artist.is_empty() { h.id.clone() } else { format!("{}  ·  {}", h.artist, h.id) };
             if stats.plays > 0 {
                 sub.push_str(&format!("  ·  ร้องแล้ว {} ครั้ง", stats.plays));
+            }
+            // With NCN and .sfkar folders both in the library a code can be
+            // listed twice: say which copy this is.
+            let kinds = &app.library.db.sources;
+            if kinds.iter().any(|s| s.kind != kinds[0].kind) {
+                let (tag, color) = match h.location {
+                    solfege_songdb::Location::Ncn { .. } => ("NCN", ACCENT),
+                    solfege_songdb::Location::Sfkar(_) => ("SFKAR", SUNG),
+                };
+                right = format_tag(p, pos2(right - 10.0, y), tag, color);
             }
             two_lines(p, rect, left + 46.0, right - 12.0, &h.title, &sub);
         }
@@ -506,6 +517,15 @@ fn row(app: &KaraokeApp, item: Item, p: &egui::Painter, rect: Rect, selected: bo
             p.with_clip_rect(clip).text(pos2(left + 36.0, y), Align2::LEFT_CENTER, c.label(app), FontId::proportional(15.0), TEXT);
         }
     }
+}
+
+/// A small coloured label right-aligned at `right_center`; returns its left edge.
+fn format_tag(p: &egui::Painter, right_center: egui::Pos2, tag: &str, color: Color32) -> f32 {
+    let g = p.layout_no_wrap(tag.to_string(), FontId::proportional(10.0), color);
+    let r = Rect::from_min_size(right_center - vec2(g.size().x + 12.0, 9.0), vec2(g.size().x + 12.0, 18.0));
+    p.rect_filled(r, CornerRadius::same(5), color.gamma_multiply(0.15));
+    p.galley(r.center() - g.size() / 2.0, g, color);
+    r.left()
 }
 
 fn two_lines(p: &egui::Painter, rect: Rect, x: f32, right: f32, top: &str, sub: &str) {
