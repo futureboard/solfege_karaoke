@@ -2,6 +2,8 @@
 name = "liveinst"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/futureboard/solfege_karaoke"
 description = "Terminal instrument rack (WAV sampler, SFZ, SF2) with MIDI I/O and a web UI"
 
 [[bin]]

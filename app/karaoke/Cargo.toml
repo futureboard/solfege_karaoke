@@ -2,6 +2,8 @@
 name = "karaoke"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/futureboard/solfege_karaoke"
 description = "Karaoke player (NCN and .sfkar songs) with an egui front end"
 
 [[bin]]

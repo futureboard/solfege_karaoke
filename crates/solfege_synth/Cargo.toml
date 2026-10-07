@@ -2,6 +2,8 @@
 name = "solfege_synth"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/futureboard/solfege_karaoke"
 description = "Sample-based synth engine (WAV, SFZ, SF2), MIDI file player and audio output"
 
 [dependencies]
