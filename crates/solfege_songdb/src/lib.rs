@@ -22,7 +22,7 @@
 //! ```text
 //! sources  position INTEGER PRIMARY KEY, path TEXT UNIQUE, kind TEXT ('ncn' | 'sfkar')
 //! songs    uid, id, title, artist, key, source -> sources.position,
-//!          format ('ncn' | 'sfkar'), path (MIDI or .sfkar), lyrics, cursor (NCN only),
+//!          format ('ncn' | 'sfkar' | 'midi'), path (MIDI or .sfkar), lyrics, cursor (NCN only),
 //!          PRIMARY KEY (source, uid)
 //! stats    uid TEXT PRIMARY KEY, plays, last_played (unix seconds), favorite (0 / 1)
 //! ```
@@ -102,6 +102,8 @@ pub struct Source {
 pub enum Location {
     Ncn { midi: PathBuf, lyrics: PathBuf, cursor: PathBuf },
     Sfkar(PathBuf),
+    /// A plain MIDI file (`.mid`, `.kar`, …), lyrics from its own events.
+    Midi(PathBuf),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -273,6 +275,7 @@ impl SongDb {
                 let location = match (format.as_str(), r.get::<_, Option<String>>(8)?, r.get::<_, Option<String>>(9)?) {
                     ("ncn", Some(lyrics), Some(cursor)) => Some(Location::Ncn { midi: file, lyrics: lyrics.into(), cursor: cursor.into() }),
                     ("sfkar", _, _) => Some(Location::Sfkar(file)),
+                    ("midi", _, _) => Some(Location::Midi(file)),
                     _ => None,
                 };
                 let song = |location| Song {
@@ -329,6 +332,7 @@ impl SongDb {
                 let (format, file, lyrics, cursor) = match &s.location {
                     Location::Ncn { midi, lyrics, cursor } => ("ncn", midi, Some(path_text(lyrics)), Some(path_text(cursor))),
                     Location::Sfkar(p) => ("sfkar", p, None, None),
+                    Location::Midi(p) => ("midi", p, None, None),
                 };
                 add.execute(params![s.uid, s.id, s.title, s.artist, s.key, s.source as i64, format, path_text(file), lyrics, cursor])
                     .map_err(sql)?;
@@ -508,6 +512,11 @@ pub fn load_song(s: &Song) -> Result<KarSong> {
     let err = |e: &dyn fmt::Display| Error::Song(format!("{}: {e}", s.id));
     match &s.location {
         Location::Sfkar(path) => KarSong::load(path).map_err(|e| err(&e)),
+        Location::Midi(path) => {
+            let bytes = std::fs::read(path).map_err(|source| Error::Io { path: path.clone(), source })?;
+            let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            KarSong::from_midi(bytes, &name).map_err(|e| err(&e))
+        }
         Location::Ncn { midi, lyrics, cursor } => {
             let info = MidiInfo::load(midi).map_err(|e| err(&e))?;
             let lyr = Lyrics::load(lyrics).map_err(|e| err(&e))?;

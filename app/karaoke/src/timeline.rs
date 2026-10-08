@@ -53,10 +53,13 @@ impl Line {
 }
 
 /// The tempo map in seconds: where each tempo starts, how many quarter
-/// notes came before it, and its seconds per quarter note.
+/// notes came before it, and its seconds per quarter note. Also the time
+/// signatures, as (quarter note where it starts, beats per bar, quarter
+/// notes per beat).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Tempo {
     segments: Vec<(f64, f64, f64)>,
+    meters: Vec<(f64, u8, f64)>,
 }
 
 impl Tempo {
@@ -73,7 +76,8 @@ impl Tempo {
                 (sec, tick as f64 / ppq as f64, spq)
             })
             .collect();
-        Self { segments }
+        let meters = midi.meters.iter().map(|m| (m.tick as f64 / ppq as f64, m.beats, m.beat_quarters())).collect();
+        Self { segments, meters }
     }
 
     fn at(&self, t: f64) -> (f64, f64, f64) {
@@ -95,6 +99,17 @@ impl Tempo {
     pub fn quarters(&self, t: f64) -> f64 {
         let (sec, q, spq) = self.at(t);
         q + (t - sec) / spq
+    }
+
+    /// Where `quarters` falls in its bar: the beat (0-based), the beats in
+    /// the bar, and how far into the beat (0..1). Bars count from each time
+    /// signature; without one the song is 4/4 from its start.
+    pub fn bar_beat(&self, quarters: f64) -> (usize, usize, f32) {
+        let q = quarters.max(0.0);
+        let i = self.meters.partition_point(|m| m.0 <= q);
+        let (start, beats, len) = if i == 0 { (0.0, 4, 1.0) } else { self.meters[i - 1] };
+        let n = (q - start) / len.max(1e-6);
+        ((n.floor() as usize) % beats.max(1) as usize, beats.max(1) as usize, n.fract() as f32)
     }
 }
 
@@ -267,12 +282,33 @@ mod tests {
             tempo: TempoMap::new(480, vec![(0, 500_000), (960, 1_000_000)]),
             end_tick: 4800,
             locked: false,
+            meters: Vec::new(),
+            texts: Vec::new(),
         };
         let song = solfege_ncnparser::NcnSong::from_parts("x", lyr, &cur, &midi);
         let tl = Timeline::new(&KarSong::from_ncn(&song, Vec::new()), &midi);
         assert!((tl.tempo.bpm(0.5) - 120.0).abs() < 1e-6);
         assert!((tl.tempo.bpm(1.5) - 60.0).abs() < 1e-6);
         assert!((tl.tempo.quarters(1.0) - 2.0).abs() < 1e-6);
+        // No time signature: 4/4 from the start.
+        assert_eq!(tl.tempo.bar_beat(0.0), (0, 4, 0.0));
+        assert_eq!(tl.tempo.bar_beat(5.25), (1, 4, 0.25));
+        assert_eq!(tl.tempo.bar_beat(-1.0).0, 0, "before the song");
+
+        // 3/4, then 6/8 from quarter 6 (bar 3): bars restart at the change.
+        let midi = MidiInfo {
+            meters: vec![
+                solfege_ncnparser::Meter { tick: 0, beats: 3, unit: 2 },
+                solfege_ncnparser::Meter { tick: 6 * 480, beats: 6, unit: 3 },
+            ],
+            ..midi
+        };
+        let tempo = Tempo::new(&midi);
+        assert_eq!(tempo.bar_beat(2.5), (2, 3, 0.5));
+        assert_eq!(tempo.bar_beat(3.0).0, 0, "bar two");
+        assert_eq!(tempo.bar_beat(6.0), (0, 6, 0.0));
+        assert_eq!(tempo.bar_beat(7.5), (3, 6, 0.0), "eighth-note beats");
+        assert_eq!(tempo.bar_beat(9.0).0, 0, "next 6/8 bar");
         assert!((tl.tempo.quarters(2.5) - 3.5).abs() < 1e-6);
         assert!((tl.lines[0].beat - 0.5).abs() < 1e-6);
         assert!((tl.lines[0].count_in() - 2.0).abs() < 1e-6);

@@ -21,6 +21,38 @@ pub struct MidiInfo {
     /// Header was `Lock` instead of `MThd` (a copy-protection trick used
     /// by some karaoke packs; the rest of the file is a normal SMF).
     pub locked: bool,
+    /// Time signatures, by tick (empty = 4/4 throughout).
+    pub meters: Vec<Meter>,
+    /// Text meta events (text, track name, lyric), by tick: the lyrics of
+    /// `.kar` and other karaoke MIDI files.
+    pub texts: Vec<MidiText>,
+}
+
+/// A time signature from tick `tick`: `beats` per bar, each a
+/// `1 / 2^unit` note (4/4 is beats 4, unit 2; 6/8 is beats 6, unit 3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Meter {
+    pub tick: u32,
+    pub beats: u8,
+    pub unit: u8,
+}
+
+impl Meter {
+    /// Length of one beat in quarter notes.
+    pub fn beat_quarters(&self) -> f64 {
+        4.0 / f64::from(1u32 << self.unit.min(6))
+    }
+}
+
+/// A text meta event, its bytes as found (the encoding is not declared).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MidiText {
+    pub tick: u32,
+    /// `0x01` text, `0x03` track name, `0x05` lyric.
+    pub kind: u8,
+    /// Track the event came from.
+    pub track: u16,
+    pub bytes: Vec<u8>,
 }
 
 /// Tempo changes as `(tick, microseconds per quarter note)`.
@@ -123,6 +155,9 @@ impl MidiInfo {
         };
 
         let mut changes = Vec::new();
+        let mut meters = Vec::new();
+        let mut texts = Vec::new();
+        let mut track_no = 0u16;
         let mut end_tick = 0u32;
         let mut pos = 8 + hlen;
         while pos + 8 <= b.len() {
@@ -134,6 +169,7 @@ impl MidiInfo {
             if !is_track {
                 continue;
             }
+            track_no += 1;
             let t = &b[start..end];
             let (mut p, mut tick, mut running) = (0usize, 0u32, 0u8);
             while p < t.len() {
@@ -160,6 +196,12 @@ impl MidiInfo {
                                 changes.push((tick, us));
                             }
                         }
+                        if kind == 0x58 && data.len() >= 2 && data[0] > 0 {
+                            meters.push(Meter { tick, beats: data[0], unit: data[1].min(6) });
+                        }
+                        if matches!(kind, 0x01 | 0x03 | 0x05) && !data.is_empty() {
+                            texts.push(MidiText { tick, kind, track: track_no - 1, bytes: data.to_vec() });
+                        }
                         p += l as usize;
                         running = 0;
                         if kind == 0x2F {
@@ -182,7 +224,17 @@ impl MidiInfo {
         }
         let mut tempo = TempoMap::new(ppq, changes);
         tempo.smpte = smpte;
-        Ok(Self { format, tracks, ppq, smpte, tempo, end_tick, locked })
+        // By tick; of two at the same tick (one per track) the last wins.
+        meters.sort_by_key(|m| m.tick);
+        meters.dedup_by(|later, earlier| {
+            let same = later.tick == earlier.tick;
+            if same {
+                *earlier = *later;
+            }
+            same
+        });
+        texts.sort_by_key(|t| t.tick);
+        Ok(Self { format, tracks, ppq, smpte, tempo, end_tick, locked, meters, texts })
     }
 
     pub fn load(path: &Path) -> crate::Result<Self> {
@@ -219,6 +271,28 @@ mod tests {
         let m = MidiInfo::parse(&f).unwrap();
         assert!(m.locked);
         assert_eq!(m.ppq, 480);
+    }
+
+    #[test]
+    fn reads_time_signatures_and_texts() {
+        let mut f = b"MThd".to_vec();
+        f.extend([0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xE0]);
+        let body: Vec<u8> = [
+            &[0x00, 0xFF, 0x58, 0x04, 0x03, 0x02, 0x18, 0x08][..], // 3/4 at 0
+            &[0x00, 0xFF, 0x03, 0x04, b'S', b'o', b'n', b'g'],
+            &[0x83, 0x60, 0xFF, 0x05, 0x02, b'L', b'a'], // lyric at 480
+            &[0x8B, 0x20, 0xFF, 0x58, 0x04, 0x06, 0x03, 0x18, 0x08], // 6/8 at 1920
+            &[0x00, 0xFF, 0x2F, 0x00],
+        ]
+        .concat();
+        f.extend(b"MTrk");
+        f.extend((body.len() as u32).to_be_bytes());
+        f.extend(body);
+        let m = MidiInfo::parse(&f).unwrap();
+        assert_eq!(m.meters, [Meter { tick: 0, beats: 3, unit: 2 }, Meter { tick: 1920, beats: 6, unit: 3 }]);
+        assert_eq!(m.meters[1].beat_quarters(), 0.5);
+        assert_eq!(m.texts.len(), 2);
+        assert_eq!((m.texts[1].tick, m.texts[1].kind, m.texts[1].bytes.as_slice()), (480, 0x05, &b"La"[..]));
     }
 
     #[test]

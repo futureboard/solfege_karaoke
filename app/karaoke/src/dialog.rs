@@ -21,6 +21,8 @@ pub enum Pick {
     SongFolder,
     /// A font file for the lyrics.
     LyricFont,
+    /// A song file to play: `.sfkar` or MIDI.
+    SongFile,
     /// A picture for the stage background.
     BackgroundImage,
     /// A folder of pictures shown one after another.
@@ -34,6 +36,7 @@ impl Pick {
             Pick::SongFolder => "เลือกโฟลเดอร์เพลง (NCN หรือ .sfkar)",
             Pick::LyricFont => "เลือกฟอนต์เนื้อร้อง",
             Pick::BackgroundImage => "เลือกรูปพื้นหลัง",
+            Pick::SongFile => "เปิดไฟล์เพลง (.sfkar / MIDI / KAR)",
             Pick::BackgroundFolder => "เลือกโฟลเดอร์รูปพื้นหลัง (สไลด์โชว์)",
         }
     }
@@ -79,9 +82,10 @@ impl Dialogs {
                     ctx.request_repaint();
                 });
             }
-            Pick::LyricFont | Pick::BackgroundImage => {
+            Pick::LyricFont | Pick::BackgroundImage | Pick::SongFile => {
                 let (name, ext): (&str, &[&str]) = match pick {
                     Pick::LyricFont => ("Font", &["ttf", "otf", "ttc"]),
+                    Pick::SongFile => ("Song", &["sfkar", "mid", "midi", "kar", "rmi"]),
                     _ => ("Image", crate::background::EXTENSIONS),
                 };
                 let picked = dialog.add_filter(name, ext).pick_file();

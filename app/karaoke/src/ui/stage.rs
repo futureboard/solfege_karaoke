@@ -81,8 +81,9 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, second: bool) {
     if app.settings.show_beats
         && let Some(now) = &app.now
     {
-        let quarters = now.timeline.tempo.quarters(app.synth.time());
-        beat_dots(&painter, pos2(corner, rect.top() + 18.0 + 10.0), quarters, app.synth.state() == PlayState::Playing, palette);
+        let tempo = &now.timeline.tempo;
+        let beat = tempo.bar_beat(tempo.quarters(app.synth.time()));
+        beat_dots(&painter, pos2(corner, rect.top() + 18.0 + 10.0), beat, app.synth.state() == PlayState::Playing, palette);
     }
 
     let t = app.lyric_time();
@@ -175,17 +176,18 @@ fn wall_clock(painter: &Painter, rect: Rect) -> f32 {
     painter.text(pos2(r.left() - 8.0, r.center().y), Align2::RIGHT_CENTER, icons::CLOCK, FontId::proportional(14.0), DIM).left()
 }
 
-/// Beats per bar the dots count (songs are taken as 4/4 from their start).
-const BAR: usize = 4;
+/// Most dots drawn for a bar (12/8 shows twelve).
+const MAX_DOTS: usize = 12;
 
-/// Four dots ending at `right_center`, like a metronome: the beat of the
-/// bar lights up (the first in the wipe colour) and fades until the next;
-/// the beats already gone in the bar stay faintly lit.
-fn beat_dots(painter: &Painter, right_center: Pos2, quarters: f64, playing: bool, pal: Palette) {
-    let (beat, phase) = beat_in_bar(quarters);
+/// One dot per beat of the bar ending at `right_center`, like a metronome:
+/// the beat lights up (the first of the bar in the wipe colour) and fades
+/// until the next; the beats already gone in the bar stay faintly lit.
+/// `beat` is (beat, beats in the bar, phase), see `Tempo::bar_beat`.
+fn beat_dots(painter: &Painter, right_center: Pos2, (beat, bar, phase): (usize, usize, f32), playing: bool, pal: Palette) {
+    let bar = bar.clamp(1, MAX_DOTS);
     let (r, step) = (4.5, 15.0);
-    for k in 0..BAR {
-        let c = pos2(right_center.x - r - (BAR - 1 - k) as f32 * step, right_center.y);
+    for k in 0..bar {
+        let c = pos2(right_center.x - r - (bar - 1 - k) as f32 * step, right_center.y);
         let color = if k == 0 { pal.wipe } else { pal.sung };
         painter.circle_filled(c, r, DIM.gamma_multiply(0.35));
         if !playing {
@@ -203,11 +205,6 @@ fn beat_dots(painter: &Painter, right_center: Pos2, quarters: f64, playing: bool
     }
 }
 
-/// The beat of the bar (0-based) and how far into it, at `quarters`.
-fn beat_in_bar(quarters: f64) -> (usize, f32) {
-    let q = quarters.max(0.0);
-    ((q.floor() as usize) % BAR, q.fract() as f32)
-}
 
 /// The line to centre: the focus line, or the next one once the focus line
 /// is finished and the next is close.
@@ -425,14 +422,6 @@ fn idle(painter: &Painter, rect: Rect, no_font: bool) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn beats_count_one_to_four() {
-        assert_eq!(beat_in_bar(0.0), (0, 0.0));
-        assert_eq!(beat_in_bar(1.25), (1, 0.25));
-        assert_eq!(beat_in_bar(3.5).0, 3);
-        assert_eq!(beat_in_bar(4.0).0, 0, "a new bar");
-        assert_eq!(beat_in_bar(-2.0), (0, 0.0), "before the song");
-    }
     use crate::timeline::Syllable;
 
     fn line(start: f64, end: f64) -> Line {

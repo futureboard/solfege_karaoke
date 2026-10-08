@@ -46,7 +46,7 @@ pub use cursor::{CURSOR_RESOLUTION, Cursor};
 pub use error::Error;
 pub use library::{Entry, NcnLibrary, SongHeader};
 pub use lyrics::{LyricLine, Lyrics};
-pub use midi::{MidiInfo, TempoMap};
+pub use midi::{Meter, MidiInfo, MidiText, TempoMap};
 pub use song::{Alignment, Cluster, NcnSong, Progress, TimedLine};
 
 pub type Result<T> = std::result::Result<T, Error>;

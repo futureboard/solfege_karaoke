@@ -494,6 +494,7 @@ fn row(app: &KaraokeApp, item: Item, p: &egui::Painter, rect: Rect, selected: bo
                 let (tag, color) = match h.location {
                     solfege_songdb::Location::Ncn { .. } => ("NCN", ACCENT),
                     solfege_songdb::Location::Sfkar(_) => ("SFKAR", SUNG),
+                    solfege_songdb::Location::Midi(_) => ("MIDI", DIM),
                 };
                 right = format_tag(p, pos2(right - 10.0, y), tag, color);
             }
@@ -697,7 +698,7 @@ fn row_action(app: &mut KaraokeApp, ov: &mut Overlay, item: Item, action: RowAct
         (Item::Song(i), RowAction::CopyPath) => {
             let path = match &app.library.song(i).location {
                 solfege_songdb::Location::Ncn { midi, .. } => midi.clone(),
-                solfege_songdb::Location::Sfkar(p) => p.clone(),
+                solfege_songdb::Location::Sfkar(p) | solfege_songdb::Location::Midi(p) => p.clone(),
             };
             ctx.copy_text(path.display().to_string());
             Outcome::Stay

@@ -154,10 +154,32 @@ pub fn load(song: &Song) -> Result<KarSong, String> {
     solfege_songdb::load_song(song).map_err(|e| e.to_string())
 }
 
-/// A `.sfkar` file opened directly, outside the catalogue.
+/// A file a song can be opened from directly: `.sfkar` or a MIDI file.
+pub fn is_song_file(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    ext == solfege_sfkar::EXTENSION || solfege_sfkar::MIDI_EXTENSIONS.contains(&ext.as_str())
+}
+
+/// A `.sfkar` or MIDI file (`.mid`, `.midi`, `.kar`, `.rmi`) opened
+/// directly, outside the catalogue.
 pub fn loose_song(path: &Path) -> Result<Song, String> {
-    let meta = KarSong::read_meta(path).map_err(|e| e.to_string())?;
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    if solfege_sfkar::MIDI_EXTENSIONS.contains(&ext.as_str()) {
+        let song = Song {
+            uid: stem.to_uppercase(),
+            id: stem.clone(),
+            title: String::new(),
+            artist: String::new(),
+            key: None,
+            source: usize::MAX,
+            location: solfege_songdb::Location::Midi(path.to_path_buf()),
+        };
+        // Read it once now for its title (and to report a broken file early).
+        let kar = load(&song)?;
+        return Ok(Song { title: kar.meta.title, artist: kar.meta.artist, ..song });
+    }
+    let meta = KarSong::read_meta(path).map_err(|e| e.to_string())?;
     let id = meta.id.filter(|id| !id.is_empty()).unwrap_or(stem);
     Ok(Song {
         uid: id.to_uppercase(),

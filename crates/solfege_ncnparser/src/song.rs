@@ -239,6 +239,8 @@ mod tests {
             tempo: TempoMap::new(ppq, vec![(0, 500_000)]),
             end_tick: 0,
             locked: false,
+            meters: Vec::new(),
+            texts: Vec::new(),
         }
     }
 

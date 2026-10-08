@@ -199,13 +199,10 @@ impl KaraokeApp {
         } else {
             app.library.rescan();
         }
-        // A .sfkar file given on the command line plays straight away.
+        // A song file given on the command line plays straight away.
         if let Some(path) = app.pending_song.clone().map(PathBuf::from).filter(|p| p.is_file()) {
             app.pending_song = None;
-            match library::loose_song(&path) {
-                Ok(song) => app.play_now(song),
-                Err(e) => app.toast_error(e),
-            }
+            app.open_file(&path);
         }
         app
     }
@@ -367,6 +364,7 @@ impl KaraokeApp {
                     Pick::SongFolder => self.add_source(path),
                     Pick::LyricFont => self.set_lyric_font(ctx, Some(path)),
                     Pick::BackgroundImage => self.settings.background.source = BgSource::Image(path),
+                    Pick::SongFile => self.open_file(&path),
                     Pick::BackgroundFolder => self.settings.background.source = BgSource::Folder(path),
                 }
             }
@@ -434,6 +432,9 @@ impl KaraokeApp {
         }
         if command(Key::Comma) {
             return self.open(Page::Settings);
+        }
+        if command(Key::O) {
+            return self.ask_open_file();
         }
         let pressed = |k: Key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, k));
         if pressed(Key::Slash) {
@@ -541,6 +542,47 @@ impl KaraokeApp {
         self.toast(format!("เนื้อร้อง: {}", self.settings.lyric_mode.label()));
     }
 
+    /// Play a `.sfkar` or MIDI file now, outside the catalogue.
+    pub fn open_file(&mut self, path: &std::path::Path) {
+        match library::loose_song(path) {
+            Ok(song) => self.play_now(song),
+            Err(e) => self.toast_error(format!("เปิดไฟล์เพลงไม่ได้ — {e}")),
+        }
+    }
+
+    /// Files dropped on the window: the first song plays (the rest join the
+    /// queue); a picture becomes the background.
+    fn dropped_files(&mut self, ctx: &egui::Context) {
+        let paths: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        let mut first = true;
+        for path in paths {
+            if library::is_song_file(&path) {
+                if first {
+                    self.open_file(&path);
+                    first = false;
+                } else {
+                    match library::loose_song(&path) {
+                        Ok(song) => self.enqueue(song),
+                        Err(e) => self.toast_error(format!("เปิดไฟล์เพลงไม่ได้ — {e}")),
+                    }
+                }
+            } else if crate::background::is_picture(&path) {
+                self.settings.background.source = BgSource::Image(path);
+            } else {
+                self.toast_error(format!("เปิดไฟล์นี้ไม่ได้: {}", path.display()));
+            }
+        }
+    }
+
+    /// Ask for a song file to open.
+    pub fn ask_open_file(&mut self) {
+        let start = self.now.as_ref().and_then(|n| match &n.entry.location {
+            solfege_songdb::Location::Sfkar(p) | solfege_songdb::Location::Midi(p) => Some(p.clone()),
+            _ => None,
+        });
+        self.dialogs.ask(Pick::SongFile, start);
+    }
+
     /// The next picture of the background slideshow.
     pub fn next_background(&mut self) {
         if matches!(self.settings.background.source, BgSource::Folder(_)) {
@@ -575,6 +617,7 @@ impl eframe::App for KaraokeApp {
             self.fullscreen = full;
         }
         self.shortcuts(ctx);
+        self.dropped_files(ctx);
         self.settings.volume = self.synth.volume();
         if let Some(e) = self.backdrop.update(ctx, &self.settings.background) {
             self.toast_error(e);

@@ -269,6 +269,100 @@ impl KarSong {
     }
 }
 
+/// MIDI files a karaoke song can be opened from.
+pub const MIDI_EXTENSIONS: &[&str] = &["mid", "midi", "kar", "rmi"];
+
+impl KarSong {
+    /// Build from a plain MIDI file: the backing track as it is, and the
+    /// lyrics it carries, if any. `.kar` (Soft Karaoke) files keep them as
+    /// text events in their words track (`/` starts a line, `\` a verse,
+    /// `@T` gives the title, then the artist); other karaoke files as lyric
+    /// events, a line ending at a carriage return or new line. Text is
+    /// UTF-8 or, failing that, Thai Windows-874 (TIS-620). `name` (the file
+    /// name) is the title when the file gives none.
+    pub fn from_midi(bytes: Vec<u8>, name: &str) -> Result<Self> {
+        let info = MidiInfo::parse(&bytes).map_err(Error::Midi)?;
+        let decode = |b: &[u8]| match std::str::from_utf8(b) {
+            Ok(s) => s.to_string(),
+            Err(_) => solfege_ncnparser::cp874::decode(b),
+        };
+        let kar_track = info.texts.iter().find(|t| t.kind == 0x01 && t.bytes.starts_with(b"@KMIDI")).map(|t| t.track);
+        let headers: Vec<String> =
+            info.texts.iter().filter(|t| t.kind == 0x01 && t.bytes.starts_with(b"@T")).map(|t| decode(&t.bytes[2..]).trim().to_string()).collect();
+        let words: Vec<(u32, String)> = match kar_track {
+            Some(track) => info.texts.iter().filter(|t| t.kind == 0x01 && t.track == track && !t.bytes.starts_with(b"@")).map(|t| (t.tick, decode(&t.bytes))).collect(),
+            None => info.texts.iter().filter(|t| t.kind == 0x05).map(|t| (t.tick, decode(&t.bytes))).collect(),
+        };
+        let mut lyrics = midi_lyrics(&words, kar_track.is_some());
+        // A line is finished a beat after its last word, or when the next starts.
+        let beat = u32::from(info.ppq);
+        let starts: Vec<u32> = lyrics.lines.iter().map(Line::start).collect();
+        for (i, line) in lyrics.lines.iter_mut().enumerate() {
+            let last = line.segments.last().map_or(0, |s| s.0);
+            line.end = last.saturating_add(beat).min(starts.get(i + 1).copied().unwrap_or(u32::MAX)).max(last);
+        }
+        // The first track's name, unless it is a sequencer's placeholder.
+        let placeholder = |n: &str| {
+            let n = n.to_lowercase();
+            let numbered = |word: &str| n.strip_prefix(word).is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || " -_#".contains(c)));
+            n.is_empty() || n.starts_with("untitled") || ["track", "sequence", "seq"].into_iter().any(numbered)
+        };
+        let track_name = info.texts.iter().find(|t| t.kind == 0x03 && t.track == 0).map(|t| decode(&t.bytes).trim().to_string()).filter(|n| !placeholder(n));
+        let title = headers.first().filter(|t| !t.is_empty()).cloned().or(track_name).unwrap_or_else(|| name.to_string());
+        Ok(Self {
+            meta: Meta {
+                title,
+                artist: headers.get(1).cloned().unwrap_or_default(),
+                key: None,
+                id: None,
+                source: Some("midi".into()),
+                duration: (info.duration() * 1000.0).round() / 1000.0,
+            },
+            midi: standard_midi(bytes),
+            lyrics,
+        })
+    }
+}
+
+/// Lines of words: `(tick, text)` in order. With `kar`, a leading `/` or
+/// `\` starts a new line; any carriage return or new line ends one.
+fn midi_lyrics(words: &[(u32, String)], kar: bool) -> Lyrics {
+    let mut lines = Vec::new();
+    let mut current: Vec<Segment> = Vec::new();
+    let mut flush = |current: &mut Vec<Segment>| {
+        if current.iter().any(|s| !s.1.trim().is_empty()) {
+            if let Some(first) = current.first_mut() {
+                first.1 = first.1.trim_start().to_string();
+            }
+            lines.push(Line { segments: std::mem::take(current), end: 0 });
+        }
+        current.clear();
+    };
+    for (tick, text) in words {
+        let mut text = text.as_str();
+        if kar {
+            while let Some(rest) = text.strip_prefix(['/', '\\']) {
+                flush(&mut current);
+                text = rest;
+            }
+        }
+        for (i, part) in text.split(['\r', '\n']).enumerate() {
+            if i > 0 {
+                flush(&mut current);
+            }
+            if part.is_empty() || (current.is_empty() && part.trim().is_empty()) {
+                continue;
+            }
+            match current.last_mut() {
+                Some(s) if s.0 == *tick => s.1.push_str(part),
+                _ => current.push(Segment(*tick, part.to_string())),
+            }
+        }
+    }
+    flush(&mut current);
+    Lyrics { lines }
+}
+
 /// Convert one song of an NCN library.
 pub fn convert(lib: &NcnLibrary, id: &str) -> Result<KarSong> {
     let song = lib.load(id).map_err(Error::Ncn)?;
@@ -332,5 +426,79 @@ mod tests {
     fn lock_header_is_restored() {
         assert_eq!(&standard_midi(b"Lock\0\0\0\x06".to_vec())[0..4], b"MThd");
         assert_eq!(standard_midi(b"MThd".to_vec()), b"MThd");
+    }
+
+    /// A MIDI file of one track holding `events` (delta, bytes).
+    fn midi_file(events: &[(u32, Vec<u8>)]) -> Vec<u8> {
+        let mut body = Vec::new();
+        for (delta, bytes) in events {
+            let mut v = *delta;
+            let mut buf = vec![(v & 0x7F) as u8];
+            v >>= 7;
+            while v > 0 {
+                buf.insert(0, (v & 0x7F) as u8 | 0x80);
+                v >>= 7;
+            }
+            body.extend(buf);
+            body.extend(bytes);
+        }
+        body.extend([0x00, 0xFF, 0x2F, 0x00]);
+        let mut f = b"MThd\0\0\0\x06\0\0\0\x01\x01\xE0MTrk".to_vec();
+        f.extend((body.len() as u32).to_be_bytes());
+        f.extend(body);
+        f
+    }
+
+    fn meta(kind: u8, text: &[u8]) -> Vec<u8> {
+        let mut v = vec![0xFF, kind, text.len() as u8];
+        v.extend(text);
+        v
+    }
+
+    #[test]
+    fn reads_kar_text_events() {
+        let f = midi_file(&[
+            (0, meta(0x01, b"@KMIDI KARAOKE FILE")),
+            (0, meta(0x01, b"@TMy Song")),
+            (0, meta(0x01, b"@TSinger")),
+            (480, meta(0x01, b"\\Hel")),
+            (240, meta(0x01, b"lo ")),
+            (240, meta(0x01, b"world")),
+            (480, meta(0x01, b"/Se")),
+            (240, meta(0x01, b"cond")),
+        ]);
+        let song = KarSong::from_midi(f, "file").unwrap();
+        assert_eq!((song.meta.title.as_str(), song.meta.artist.as_str()), ("My Song", "Singer"));
+        let texts: Vec<String> = song.lyrics.lines.iter().map(Line::text).collect();
+        assert_eq!(texts, ["Hello world", "Second"]);
+        let l = &song.lyrics.lines[0];
+        assert_eq!(l.segments.iter().map(|s| s.0).collect::<Vec<_>>(), [480, 720, 960]);
+        assert_eq!(l.end, 1440, "ends when the next line starts");
+        assert_eq!(song.lyrics.lines[1].end, 1680 + 480, "a beat after its last word");
+    }
+
+    #[test]
+    fn reads_lyric_events_in_thai_tis620() {
+        // "รัก" "เธอ" in TIS-620, then a line break.
+        let f = midi_file(&[
+            (0, meta(0x03, b"Track title")),
+            (480, meta(0x05, &[0xC3, 0xD1, 0xA1])),
+            (480, meta(0x05, &[0xE0, 0xB8, 0xCD, b'\r'])),
+            (480, meta(0x05, "ไป".as_bytes())),
+        ]);
+        let song = KarSong::from_midi(f, "file").unwrap();
+        assert_eq!(song.meta.title, "Track title");
+        let texts: Vec<String> = song.lyrics.lines.iter().map(Line::text).collect();
+        assert_eq!(texts, ["รักเธอ", "ไป"]);
+        // No lyrics at all: just the backing track, titled after the file.
+        let song = KarSong::from_midi(midi_file(&[(0, vec![0x90, 60, 100]), (480, vec![0x80, 60, 0])]), "ชื่อไฟล์").unwrap();
+        assert!(song.lyrics.lines.is_empty());
+        assert_eq!(song.meta.title, "ชื่อไฟล์");
+        // A placeholder track name does not make a title.
+        for name in [&b"Untitled"[..], b"Track 1", b"Seq-2", b"  "] {
+            let song = KarSong::from_midi(midi_file(&[(0, meta(0x03, name))]), "file").unwrap();
+            assert_eq!(song.meta.title, "file", "{:?}", String::from_utf8_lossy(name));
+        }
+        assert!(KarSong::from_midi(b"not midi".to_vec(), "x").is_err());
     }
 }

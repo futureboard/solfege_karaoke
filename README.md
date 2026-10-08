@@ -69,8 +69,9 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   lines drift up, or *classic*, two fixed lines in the middle that take
   turns. A title card shows before the singing starts, four dots count
   in after a long rest, and the time of day sits in the corner with four
-  dots beside it that count the beats of the bar like a metronome (1 2 3 4,
-  following the song's tempo; taken as 4/4 from the start).
+  dots beside it that count the beats of the bar like a metronome, from
+  the song's tempo map and time signatures (3/4 shows three dots, 6/8
+  six; a file without one counts 4/4).
   The lyric colours (still to sing, sung, the wipe edge, outline) come
   from six presets or a colour picker each, the outline's thickness goes
   from none to four times the default, and the lyrics can use any
@@ -120,6 +121,12 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   for full screen there, or pick the display in Settings; it reopens in
   the same place, full screen if it was. The pointer hides on it after
   two seconds, and every shortcut works from it too.
+- **MIDI files.** Open a `.mid`, `.midi`, `.kar` or `.rmi` file directly
+  (`Ctrl O`, the stage menu, the command line, or drop it on the window;
+  `.sfkar` too). Lyrics come from the file: `.kar` text events (`/` new
+  line, `\` new verse, `@T` title and artist) or lyric events, in UTF-8
+  or Thai TIS-620. Dropping several songs plays the first and queues the
+  rest; dropping a picture makes it the background.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
   one searchable list, with favourites and play counts, kept in an SQLite
   database (`songs.dat`); songs can be queued. A folder of `.sfkar` files
@@ -171,6 +178,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `V` | guide melody (channel 9) on / off | `L` | lyric layout |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
+| `Ctrl O` | open a song file (.sfkar / MIDI / KAR) | | |
 | `D` | second screen on / off | `B` | next background picture (slideshow) |
 | right click | context menu | | |
 

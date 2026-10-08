@@ -104,6 +104,9 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     if item(ui, icons::SEARCH, "ค้นหาเพลง", "/") {
         app.open(Page::Songs);
     }
+    if item(ui, icons::FILE_MUSIC, "เปิดไฟล์เพลง (.sfkar / MIDI / KAR)…", "Ctrl O") {
+        app.ask_open_file();
+    }
     let queue = if app.queue.is_empty() { "คิวเพลง".to_string() } else { format!("คิวเพลง ({})", app.queue.len()) };
     if item(ui, icons::QUEUE, &queue, "Q") {
         app.open(Page::Queue);

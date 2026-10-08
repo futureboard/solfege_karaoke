@@ -36,7 +36,8 @@ USAGE:
     solfege-karaoke [OPTIONS] [SONG]
 
     SONG is a song code from the catalogue (e.g. Z2608001), started once
-    the library is scanned, or a .sfkar file to play directly.
+    the library is scanned, or a .sfkar or MIDI file (.mid, .midi, .kar,
+    .rmi) to play directly.
 
 OPTIONS:
     -c, --config <FILE>     settings file (default: config.json in the

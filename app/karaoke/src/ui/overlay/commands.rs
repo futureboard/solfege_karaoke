@@ -40,9 +40,10 @@ pub enum Cmd {
     Effects,
     SecondScreen,
     NextBackground,
+    OpenFile,
 }
 
-pub const ALL: [Cmd; 29] = [
+pub const ALL: [Cmd; 30] = [
     Cmd::PlayPause,
     Cmd::Restart,
     Cmd::Stop,
@@ -57,6 +58,7 @@ pub const ALL: [Cmd; 29] = [
     Cmd::SecondScreen,
     Cmd::NextBackground,
     Cmd::Songs,
+    Cmd::OpenFile,
     Cmd::Queue,
     Cmd::ClearQueue,
     Cmd::Mixer,
@@ -88,6 +90,7 @@ impl Cmd {
             Cmd::SecondScreen if app.settings.second_screen.open => icons::SECOND_SCREEN_OFF,
             Cmd::SecondScreen => icons::SECOND_SCREEN,
             Cmd::NextBackground => icons::SHUFFLE,
+            Cmd::OpenFile => icons::FILE_MUSIC,
             Cmd::Songs => icons::SEARCH,
             Cmd::Queue => icons::QUEUE,
             Cmd::ClearQueue => icons::TRASH,
@@ -138,6 +141,7 @@ impl Cmd {
             Cmd::SecondScreen if app.settings.second_screen.open => "ปิดจอที่สอง".into(),
             Cmd::SecondScreen => "เปิดจอที่สอง (เนื้อร้องอย่างเดียว สำหรับทีวี / โปรเจกเตอร์)".into(),
             Cmd::NextBackground => "รูปพื้นหลังถัดไป (โฟลเดอร์รูป)".into(),
+            Cmd::OpenFile => "เปิดไฟล์เพลง (.sfkar / MIDI / KAR)…".into(),
             Cmd::Songs => "ค้นหาเพลง".into(),
             Cmd::Queue => format!("ดูคิวเพลง ({})", app.queue.len()),
             Cmd::ClearQueue => "ล้างคิว".into(),
@@ -176,6 +180,7 @@ impl Cmd {
             Cmd::Fullscreen => "fullscreen stage",
             Cmd::SecondScreen => "second screen dual display monitor tv projector",
             Cmd::NextBackground => "background wallpaper image picture slideshow",
+            Cmd::OpenFile => "open file midi mid kar sfkar play",
             Cmd::Songs => "song search find",
             Cmd::Queue | Cmd::ClearQueue => "queue",
             Cmd::Mixer | Cmd::ResetMixer => "mixer tracks channels mute solo volume",
@@ -203,6 +208,7 @@ impl Cmd {
             Cmd::Fullscreen => &["F"],
             Cmd::SecondScreen => &["D"],
             Cmd::NextBackground => &["B"],
+            Cmd::OpenFile => &["Ctrl", "O"],
             Cmd::Songs => &["/"],
             Cmd::Queue => &["Q"],
             Cmd::Mixer => &["M"],
@@ -295,6 +301,10 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
         }
         Cmd::NextBackground => {
             app.next_background();
+            Outcome::Close
+        }
+        Cmd::OpenFile => {
+            app.ask_open_file();
             Outcome::Close
         }
         Cmd::Songs => Outcome::Goto(Page::Songs),
