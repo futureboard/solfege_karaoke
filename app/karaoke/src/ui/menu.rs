@@ -89,7 +89,8 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             }
         }
         ui.separator();
-        if item(ui, icons::SHUFFLE, "พื้นหลังถัดไป", "B") {
+        let slideshow = matches!(app.settings.background.source, crate::config::BgSource::Folder(_));
+        if item_if(ui, slideshow, icons::SHUFFLE, "รูปพื้นหลังถัดไป", "B") {
             app.next_background();
         }
         if toggle(ui, app.settings.show_clock, icons::CLOCK, "แสดงนาฬิกา", "") {

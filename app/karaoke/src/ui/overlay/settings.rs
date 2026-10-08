@@ -49,7 +49,7 @@ const KEYS: [(&str, &[(&str, &str)]); 3] = [
             ("S", "เสียงและ SoundFont"),
             ("F  F11", "เต็มจอ (Esc ออก)"),
             ("D", "เปิด / ปิดจอที่สอง"),
-            ("B", "เปลี่ยนพื้นหลัง (รูปถัดไป)"),
+            ("B", "รูปพื้นหลังถัดไป (โฟลเดอร์รูป)"),
             ("Tab", "สลับเพลง / คิว"),
         ],
     ),
@@ -429,12 +429,10 @@ fn midi(app: &mut KaraokeApp, ui: &mut egui::Ui) {
 // ---------------------------------------------------------------- background
 
 fn background(app: &mut KaraokeApp, ui: &mut egui::Ui) {
-    use crate::background::PRESETS;
     use crate::config::{BgFit, BgSource};
-    title(ui, "พื้นหลัง", "รูปหลังเนื้อร้อง ใช้ทั้งจอหลักและจอที่สอง  ·  B เปลี่ยนรูป");
-    let ctx = ui.ctx().clone();
+    title(ui, "พื้นหลัง", "รูปหลังเนื้อร้อง ใช้ทั้งจอหลักและจอที่สอง  ·  B ข้ามไปรูปถัดไป");
     card(ui, |ui| {
-        card_title(ui, icons::IMAGE, "รูปพื้นหลัง", "รูปในตัวโปรแกรม รูปของคุณเอง หรือโฟลเดอร์รูปที่เปลี่ยนไปเรื่อย ๆ");
+        card_title(ui, icons::IMAGE, "รูปพื้นหลัง", "รูปของคุณเอง หรือโฟลเดอร์รูปที่เปลี่ยนไปเรื่อย ๆ (png, jpg, webp, bmp, gif)");
         ui.add_space(4.0);
         let cols = 3.0;
         let gap = 10.0;
@@ -446,12 +444,6 @@ fn background(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             if bg_tile(ui, size, None, icons::REMOVE, "ไม่มี", source == BgSource::Plain) {
                 pick = Some(BgSource::Plain);
-            }
-            for (i, name) in PRESETS.iter().enumerate() {
-                let thumb = app.backdrop.thumb(&ctx, i);
-                if bg_tile(ui, size, Some(thumb), "", name, source == BgSource::Preset(i)) {
-                    pick = Some(BgSource::Preset(i));
-                }
             }
             let own = |s: &BgSource| matches!(s, BgSource::Image(_));
             let preview = |s: &BgSource| app.backdrop.current().filter(|_| own(s) || matches!(s, BgSource::Folder(_))).map(|(id, _)| id);

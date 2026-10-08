@@ -137,7 +137,7 @@ impl Cmd {
             Cmd::Fullscreen => "เต็มจอ".into(),
             Cmd::SecondScreen if app.settings.second_screen.open => "ปิดจอที่สอง".into(),
             Cmd::SecondScreen => "เปิดจอที่สอง (เนื้อร้องอย่างเดียว สำหรับทีวี / โปรเจกเตอร์)".into(),
-            Cmd::NextBackground => "เปลี่ยนพื้นหลัง (รูปถัดไป)".into(),
+            Cmd::NextBackground => "รูปพื้นหลังถัดไป (โฟลเดอร์รูป)".into(),
             Cmd::Songs => "ค้นหาเพลง".into(),
             Cmd::Queue => format!("ดูคิวเพลง ({})", app.queue.len()),
             Cmd::ClearQueue => "ล้างคิว".into(),

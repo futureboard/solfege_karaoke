@@ -75,6 +75,9 @@ pub struct Settings {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Background {
+    /// A value this version does not know (such as the built-in pictures
+    /// of an earlier build) reads as the plain stage.
+    #[serde(deserialize_with = "plain_if_unknown")]
     pub source: BgSource,
     pub fit: BgFit,
     /// Darken the picture so the lyrics stand out (0 = as it is, 0.9 = almost black).
@@ -87,8 +90,13 @@ pub struct Background {
 
 impl Default for Background {
     fn default() -> Self {
-        Self { source: BgSource::Preset(0), fit: BgFit::Cover, dim: 0.35, slide_secs: 30, motion: true }
+        Self { source: BgSource::Plain, fit: BgFit::Cover, dim: 0.35, slide_secs: 30, motion: true }
     }
+}
+
+fn plain_if_unknown<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BgSource, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -96,8 +104,6 @@ pub enum BgSource {
     /// The plain dark stage.
     #[default]
     Plain,
-    /// One of the built-in pictures (`background::PRESETS`).
-    Preset(usize),
     /// A picture file.
     Image(PathBuf),
     /// Every picture in a folder, one after another.
@@ -386,6 +392,13 @@ mod tests {
         assert_eq!(partial.lyric_scale, 1.0);
         assert!(partial.lyric_colors == LyricColors::default());
         assert_eq!(partial.lyric_outline, 1.0);
+
+        // A background of an earlier build (built-in picture) reads as plain,
+        // the rest of the file is kept.
+        std::fs::write(&path, r#"{ "volume": 0.4, "background": { "source": { "Preset": 2 }, "dim": 0.6 } }"#).unwrap();
+        let (old, err) = ConfigFile::new(Some(path.clone())).load(None);
+        assert!(err.is_none(), "{err:?}");
+        assert_eq!((old.volume, old.background.source, old.background.dim), (0.4, BgSource::Plain, 0.6));
 
         // Broken: reported, defaults used, the file kept aside.
         std::fs::write(&path, "{ not json").unwrap();

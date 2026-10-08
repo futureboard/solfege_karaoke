@@ -541,27 +541,13 @@ impl KaraokeApp {
         self.toast(format!("เนื้อร้อง: {}", self.settings.lyric_mode.label()));
     }
 
-    /// The next background: the next picture of the slideshow, or the next
-    /// built-in picture.
+    /// The next picture of the background slideshow.
     pub fn next_background(&mut self) {
-        use crate::background::PRESETS;
-        let bg = &mut self.settings.background;
-        let name = match &bg.source {
-            BgSource::Folder(_) => {
-                self.backdrop.next_slide();
-                return;
-            }
-            BgSource::Preset(i) => {
-                let next = (i + 1) % PRESETS.len();
-                bg.source = BgSource::Preset(next);
-                PRESETS[next]
-            }
-            _ => {
-                bg.source = BgSource::Preset(0);
-                PRESETS[0]
-            }
-        };
-        self.toast(format!("พื้นหลัง: {name}"));
+        if matches!(self.settings.background.source, BgSource::Folder(_)) {
+            self.backdrop.next_slide();
+        } else {
+            self.toast("ข้ามรูปได้เมื่อพื้นหลังเป็นโฟลเดอร์รูป — ตั้งได้ที่ ตั้งค่า › พื้นหลัง".into());
+        }
     }
 
     /// Open or close the second screen (lyrics only, for a TV).
