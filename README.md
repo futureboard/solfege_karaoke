@@ -68,7 +68,7 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   *scroll*, where the line being sung sits in the middle and finished
   lines drift up, or *classic*, two fixed lines in the middle that take
   turns. A title card shows before the singing starts, four dots count
-  in after a long rest, and the time of day sits in the corner with four
+  in after a long rest, and the time of day sits in the corner with
   dots beside it that count the beats of the bar like a metronome, from
   the song's tempo map and time signatures (3/4 shows three dots, 6/8
   six; a file without one counts 4/4).
