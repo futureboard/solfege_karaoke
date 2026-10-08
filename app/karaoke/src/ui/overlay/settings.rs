@@ -663,6 +663,10 @@ fn lyrics(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         row(ui, "นาฬิกา", "แสดงเวลาตอนนี้ที่มุมขวาบนของจอเนื้อร้อง", |ui| {
             switch(ui, &mut app.settings.show_clock);
         });
+        ui.separator();
+        row(ui, "จังหวะ 4 จุด", "นับ 1 2 3 4 ตามจังหวะเพลงข้างนาฬิกา เหมือนเมโทรนอม (จุดแรกคือต้นห้อง)", |ui| {
+            switch(ui, &mut app.settings.show_beats);
+        });
     });
     card(ui, |ui| {
         card_title(ui, icons::TYPE, "ฟอนต์เนื้อร้อง", "ไฟล์ .ttf / .otf / .ttc ตัวอักษรที่ฟอนต์ไม่มีจะใช้ Noto Sans Thai แทน");

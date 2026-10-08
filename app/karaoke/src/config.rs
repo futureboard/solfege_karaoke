@@ -58,6 +58,8 @@ pub struct Settings {
     pub melody_off: bool,
     /// Show the time of day on the stage.
     pub show_clock: bool,
+    /// Four dots by the clock that count the beats of the bar.
+    pub show_beats: bool,
     /// Colours of the lyrics and their wipe.
     pub lyric_colors: LyricColors,
     /// Thickness of the rim around the lyric letters, relative to the
@@ -237,6 +239,7 @@ impl Default for Settings {
             lyric_mode: LyricMode::Scroll,
             melody_off: false,
             show_clock: true,
+            show_beats: true,
             lyric_colors: LyricColors::default(),
             lyric_outline: 1.0,
             lyric_font: None,
