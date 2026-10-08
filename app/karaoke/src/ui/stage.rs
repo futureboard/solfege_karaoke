@@ -62,7 +62,8 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, second: bool) {
     }
     resp.context_menu(|ui| if second { screen2::context_menu(app, ui) } else { menu::app_menu(app, ui) });
     let painter = ui.painter_at(rect);
-    backdrop(&painter, rect);
+    let now = ui.input(|i| i.time);
+    app.backdrop.paint(&painter, rect, &app.settings.background, now);
     let c = app.settings.lyric_colors;
     let rgb = |v: [u8; 3]| Color32::from_rgb(v[0], v[1], v[2]);
     let palette = Palette { unsung: rgb(c.unsung), sung: rgb(c.sung), wipe: rgb(c.wipe), outline: rgb(c.outline), rim: app.settings.lyric_outline };
@@ -297,10 +298,6 @@ pub fn outline(painter: &Painter, galley: &Arc<Galley>, pos: Pos2, size: f32, ri
         }
         r -= 2.5;
     }
-}
-
-fn backdrop(painter: &Painter, rect: Rect) {
-    painter.rect_filled(rect, 0.0, INK);
 }
 
 fn header(painter: &Painter, rect: Rect, now: &NowPlaying) {

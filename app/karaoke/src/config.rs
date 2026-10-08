@@ -67,6 +67,64 @@ pub struct Settings {
     pub lyric_font: Option<PathBuf>,
     /// The second screen (lyrics only, for a TV or projector).
     pub second_screen: SecondScreen,
+    /// What is behind the lyrics.
+    pub background: Background,
+}
+
+/// The picture behind the lyrics (both screens).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Background {
+    pub source: BgSource,
+    pub fit: BgFit,
+    /// Darken the picture so the lyrics stand out (0 = as it is, 0.9 = almost black).
+    pub dim: f32,
+    /// Seconds per picture of a folder.
+    pub slide_secs: u32,
+    /// Slow pan and zoom.
+    pub motion: bool,
+}
+
+impl Default for Background {
+    fn default() -> Self {
+        Self { source: BgSource::Preset(0), fit: BgFit::Cover, dim: 0.35, slide_secs: 30, motion: true }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum BgSource {
+    /// The plain dark stage.
+    #[default]
+    Plain,
+    /// One of the built-in pictures (`background::PRESETS`).
+    Preset(usize),
+    /// A picture file.
+    Image(PathBuf),
+    /// Every picture in a folder, one after another.
+    Folder(PathBuf),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BgFit {
+    /// Fill the stage, cutting off what sticks out.
+    #[default]
+    Cover,
+    /// The whole picture, with bars where it does not fill.
+    Contain,
+    /// Fill the stage, stretched.
+    Stretch,
+}
+
+impl BgFit {
+    pub const ALL: [BgFit; 3] = [BgFit::Cover, BgFit::Contain, BgFit::Stretch];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BgFit::Cover => "เต็มจอ (ตัดส่วนเกิน)",
+            BgFit::Contain => "เห็นทั้งรูป",
+            BgFit::Stretch => "ยืดเต็มจอ",
+        }
+    }
 }
 
 /// A second window that shows only the lyric stage. It opens where it was
@@ -177,6 +235,7 @@ impl Default for Settings {
             lyric_outline: 1.0,
             lyric_font: None,
             second_screen: SecondScreen::default(),
+            background: Background::default(),
         }
     }
 }
@@ -295,6 +354,7 @@ mod tests {
         s.lyric_outline = 2.5;
         s.midi_out = Some("USB MIDI Interface".into());
         s.midi_in_channel = Some(15);
+        s.background = Background { source: BgSource::Folder("/pictures".into()), fit: BgFit::Contain, dim: 0.5, ..Background::default() };
         s.second_screen = SecondScreen { open: true, fullscreen: true, pos: Some([1920.0, 0.0]), monitor: Some(1), ..SecondScreen::default() };
         s.lyric_font = Some(PathBuf::from("/fonts/lyrics.ttf"));
         file.save(&s).unwrap();
@@ -315,6 +375,7 @@ mod tests {
         assert_eq!(back.lyric_outline, 2.5);
         assert_eq!(back.midi_out.as_deref(), Some("USB MIDI Interface"));
         assert_eq!(back.midi_in_channel, Some(15));
+        assert_eq!(back.background, s.background);
         assert_eq!(back.second_screen, s.second_screen);
 
         // Hand-edited with fields missing: defaults fill in.

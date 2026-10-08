@@ -46,6 +46,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | Kick, snare, ... each from its own SoundFont and kit | Effect slot editor (popup over the mixer) |
 | ![Settings](docs/screenshots/settings.png) | ![Second screen](docs/screenshots/second-screen.png) |
 | Settings popup (`Ctrl ,`): lyric font and colours | Second screen (`D`): lyrics on the TV, controls on the laptop |
+| ![Backgrounds](docs/screenshots/backgrounds.png) | |
+| Background settings: built-in pictures, your own picture or a slideshow folder | |
 
 ## What is in here
 
@@ -89,6 +91,12 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 - **Full screen** (`F`, `F11` or double-click the stage) fills the screen
   and keeps everything: bottom bar, mixer, overlays and windows. Type to filter, arrows to move, Enter to
   act.
+- **Backgrounds.** Six built-in pictures drawn by the app itself (night
+  lights, aurora, sunset, under the sea, neon, stage lights), any picture
+  file, or a folder of pictures shown as a slideshow with a cross-fade.
+  Settings › background sets how dark the picture is, how it fits the
+  screen and a slow pan and zoom; `B` moves to the next picture. Both
+  screens show it.
 - **MIDI I/O.** Settings › audio picks the **MIDI Output**: the
   *Solfege Engine* (the built-in SoundFont synth) or any MIDI device: a
   keyboard, a sound module, or a synth on the computer (on Windows,
@@ -156,7 +164,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `V` | guide melody (channel 9) on / off | `L` | lyric layout |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
-| `D` | second screen on / off | right click | context menu |
+| `D` | second screen on / off | `B` | next background |
+| right click | context menu | | |
 
 In the song / queue panel: `Enter` reserves a song, `Shift Enter` sings it
 now, `Ctrl D` marks a favourite, `Tab` switches between songs and queue and
@@ -213,7 +222,7 @@ under Settings):
 
 | File | What it holds |
 |---|---|
-| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, MIDI output and input, lyric size, offset, outline, colours and font, the second screen's place. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, MIDI output and input, background, lyric size, offset, outline, colours and font, the second screen's place. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
 | `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
 
 Settings and catalogues of older versions (eframe's `app.ron`,

@@ -8,7 +8,7 @@ use solfege_sfkar::KarSong;
 use solfege_songdb::Song;
 use solfege_synth::engine::PlayState;
 
-use crate::config::{self, ConfigFile, SavedInstrument, SavedPiece, Settings};
+use crate::config::{self, BgSource, ConfigFile, SavedInstrument, SavedPiece, Settings};
 use crate::dialog::{Dialogs, Pick};
 use crate::library::{self, Library};
 use crate::synth::{InstrumentSound, Synth, SynthEvent};
@@ -73,6 +73,8 @@ pub struct KaraokeApp {
     pub scrub: Option<f64>,
     pending_song: Option<String>,
     clock: f64,
+    /// The picture behind the lyrics.
+    pub backdrop: crate::background::Backdrop,
     /// MIDI devices found by the last scan (`None` = not scanned yet).
     pub midi_ports: Option<crate::midi::MidiPorts>,
     /// The second screen's window as it was opened (see `ui::screen2`).
@@ -120,6 +122,7 @@ impl KaraokeApp {
             pending_song: launch.song,
             second_window: None,
             midi_ports: None,
+            backdrop: Default::default(),
             clock: 0.0,
         };
         if let Some(path) = app.settings.lyric_font.clone() {
@@ -363,6 +366,8 @@ impl KaraokeApp {
                     Pick::SoundFonts => self.add_soundfont(path),
                     Pick::SongFolder => self.add_source(path),
                     Pick::LyricFont => self.set_lyric_font(ctx, Some(path)),
+                    Pick::BackgroundImage => self.settings.background.source = BgSource::Image(path),
+                    Pick::BackgroundFolder => self.settings.background.source = BgSource::Folder(path),
                 }
             }
         }
@@ -457,6 +462,9 @@ impl KaraokeApp {
         if pressed(Key::D) {
             self.toggle_second_screen();
         }
+        if pressed(Key::B) {
+            self.next_background();
+        }
         if ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Space)) {
             self.stop();
         }
@@ -533,6 +541,29 @@ impl KaraokeApp {
         self.toast(format!("เนื้อร้อง: {}", self.settings.lyric_mode.label()));
     }
 
+    /// The next background: the next picture of the slideshow, or the next
+    /// built-in picture.
+    pub fn next_background(&mut self) {
+        use crate::background::PRESETS;
+        let bg = &mut self.settings.background;
+        let name = match &bg.source {
+            BgSource::Folder(_) => {
+                self.backdrop.next_slide();
+                return;
+            }
+            BgSource::Preset(i) => {
+                let next = (i + 1) % PRESETS.len();
+                bg.source = BgSource::Preset(next);
+                PRESETS[next]
+            }
+            _ => {
+                bg.source = BgSource::Preset(0);
+                PRESETS[0]
+            }
+        };
+        self.toast(format!("พื้นหลัง: {name}"));
+    }
+
     /// Open or close the second screen (lyrics only, for a TV).
     pub fn toggle_second_screen(&mut self) {
         let open = !self.settings.second_screen.open;
@@ -559,6 +590,9 @@ impl eframe::App for KaraokeApp {
         }
         self.shortcuts(ctx);
         self.settings.volume = self.synth.volume();
+        if let Some(e) = self.backdrop.update(ctx, &self.settings.background) {
+            self.toast_error(e);
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {

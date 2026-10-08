@@ -39,9 +39,10 @@ pub enum Cmd {
     About,
     Effects,
     SecondScreen,
+    NextBackground,
 }
 
-pub const ALL: [Cmd; 28] = [
+pub const ALL: [Cmd; 29] = [
     Cmd::PlayPause,
     Cmd::Restart,
     Cmd::Stop,
@@ -54,6 +55,7 @@ pub const ALL: [Cmd; 28] = [
     Cmd::SpeedReset,
     Cmd::Fullscreen,
     Cmd::SecondScreen,
+    Cmd::NextBackground,
     Cmd::Songs,
     Cmd::Queue,
     Cmd::ClearQueue,
@@ -85,6 +87,7 @@ impl Cmd {
             Cmd::Fullscreen => icons::FULLSCREEN,
             Cmd::SecondScreen if app.settings.second_screen.open => icons::SECOND_SCREEN_OFF,
             Cmd::SecondScreen => icons::SECOND_SCREEN,
+            Cmd::NextBackground => icons::SHUFFLE,
             Cmd::Songs => icons::SEARCH,
             Cmd::Queue => icons::QUEUE,
             Cmd::ClearQueue => icons::TRASH,
@@ -134,6 +137,7 @@ impl Cmd {
             Cmd::Fullscreen => "เต็มจอ".into(),
             Cmd::SecondScreen if app.settings.second_screen.open => "ปิดจอที่สอง".into(),
             Cmd::SecondScreen => "เปิดจอที่สอง (เนื้อร้องอย่างเดียว สำหรับทีวี / โปรเจกเตอร์)".into(),
+            Cmd::NextBackground => "เปลี่ยนพื้นหลัง (รูปถัดไป)".into(),
             Cmd::Songs => "ค้นหาเพลง".into(),
             Cmd::Queue => format!("ดูคิวเพลง ({})", app.queue.len()),
             Cmd::ClearQueue => "ล้างคิว".into(),
@@ -171,6 +175,7 @@ impl Cmd {
             Cmd::Faster | Cmd::Slower | Cmd::SpeedReset => "tempo speed bpm",
             Cmd::Fullscreen => "fullscreen stage",
             Cmd::SecondScreen => "second screen dual display monitor tv projector",
+            Cmd::NextBackground => "background wallpaper image picture slideshow",
             Cmd::Songs => "song search find",
             Cmd::Queue | Cmd::ClearQueue => "queue",
             Cmd::Mixer | Cmd::ResetMixer => "mixer tracks channels mute solo volume",
@@ -197,6 +202,7 @@ impl Cmd {
             Cmd::Slower => &[","],
             Cmd::Fullscreen => &["F"],
             Cmd::SecondScreen => &["D"],
+            Cmd::NextBackground => &["B"],
             Cmd::Songs => &["/"],
             Cmd::Queue => &["Q"],
             Cmd::Mixer => &["M"],
@@ -285,6 +291,10 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
         }
         Cmd::SecondScreen => {
             app.toggle_second_screen();
+            Outcome::Close
+        }
+        Cmd::NextBackground => {
+            app.next_background();
             Outcome::Close
         }
         Cmd::Songs => Outcome::Goto(Page::Songs),
