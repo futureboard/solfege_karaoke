@@ -19,6 +19,11 @@ use crate::style::{self, DANGER, INK, LINE, PANEL, TEXT};
 
 pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
+    // The background fills everything above the bottom bar; the mixer
+    // opens over it instead of pushing it up.
+    let full = ui.max_rect();
+    let behind = egui::Rect::from_min_max(full.min, egui::pos2(full.max.x, full.max.y - bar::HEIGHT));
+    app.backdrop.paint(ui.painter(), behind, &app.settings.background, ui.input(|i| i.time));
     Panel::bottom("bar")
         .frame(Frame::new().fill(INK))
         .exact_size(bar::HEIGHT)
@@ -27,7 +32,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         .show(ui, |ui| bar::show(app, ui));
     if app.mixer_open {
         Panel::bottom("mixer")
-            .frame(Frame::new().fill(PANEL).stroke(Stroke::new(1.0, LINE)))
+            .frame(Frame::new().fill(PANEL.gamma_multiply(0.86)).stroke(Stroke::new(1.0, LINE)))
             .exact_size(mixer::HEIGHT)
             .resizable(false)
             .show_separator_line(false)

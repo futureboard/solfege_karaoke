@@ -96,6 +96,9 @@ pub fn app_menu(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         if toggle(ui, app.settings.show_clock, icons::CLOCK, "แสดงนาฬิกา", "") {
             app.settings.show_clock = !app.settings.show_clock;
         }
+        if toggle(ui, app.settings.show_beats, icons::METRONOME, "จังหวะ 4 จุด", "") {
+            app.settings.show_beats = !app.settings.show_beats;
+        }
     });
     ui.separator();
     if item(ui, icons::SEARCH, "ค้นหาเพลง", "/") {

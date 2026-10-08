@@ -68,7 +68,9 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   *scroll*, where the line being sung sits in the middle and finished
   lines drift up, or *classic*, two fixed lines in the middle that take
   turns. A title card shows before the singing starts, four dots count
-  in after a long rest, and the time of day sits in the corner.
+  in after a long rest, and the time of day sits in the corner with four
+  dots beside it that count the beats of the bar like a metronome (1 2 3 4,
+  following the song's tempo; taken as 4/4 from the start).
   The lyric colours (still to sing, sung, the wipe edge, outline) come
   from six presets or a colour picker each, the outline's thickness goes
   from none to four times the default, and the lyrics can use any
@@ -80,6 +82,11 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   `Q`, `Tab` between them); all commands (`Ctrl K`), settings (`Ctrl ,`)
   and About open as popups of their own. Every popup and window can be
   dragged by its title bar (double-click it to put it back).
+- **Fonts.** The interface uses Noto Sans on Linux and the system font
+  elsewhere: San Francisco (Thonburi for Thai) on macOS, Segoe UI with
+  Tahoma for Thai on Windows. The bundled Noto Sans and Noto Sans Thai
+  fill in whatever a system font lacks; the lyrics use their own bundled
+  bold fonts (or the font chosen in Settings).
 - **Settings.** Sections for the song library (folders, counts, rescan),
   audio output (device, volume, guide melody), lyrics (layout, size with
   a live sample, outline thickness, timing, clock, font, colours),
@@ -95,7 +102,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   folder of pictures shown as a slideshow with a cross-fade; the app
   ships no pictures of its own. Settings › background sets how dark the
   picture is, how it fits the screen and a slow pan and zoom; `B` skips
-  to the next picture of the slideshow. Both screens show it.
+  to the next picture of the slideshow. Both screens show it, and the
+  mixer opens over it rather than pushing it up.
 - **MIDI I/O.** Settings › audio picks the **MIDI Output**: the
   *Solfege Engine* (the built-in SoundFont synth) or any MIDI device: a
   keyboard, a sound module, or a synth on the computer (on Windows,

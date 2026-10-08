@@ -62,17 +62,27 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, second: bool) {
     }
     resp.context_menu(|ui| if second { screen2::context_menu(app, ui) } else { menu::app_menu(app, ui) });
     let painter = ui.painter_at(rect);
-    let now = ui.input(|i| i.time);
-    app.backdrop.paint(&painter, rect, &app.settings.background, now);
+    if second {
+        // The main window paints it behind the mixer too (see `ui::show`).
+        let now = ui.input(|i| i.time);
+        app.backdrop.paint(&painter, rect, &app.settings.background, now);
+    }
     let c = app.settings.lyric_colors;
     let rgb = |v: [u8; 3]| Color32::from_rgb(v[0], v[1], v[2]);
     let palette = Palette { unsung: rgb(c.unsung), sung: rgb(c.sung), wipe: rgb(c.wipe), outline: rgb(c.outline), rim: app.settings.lyric_outline };
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(PALETTE), palette));
+    let mut corner = rect.right() - 18.0;
     if app.settings.show_clock {
-        wall_clock(&painter, rect);
+        corner = wall_clock(&painter, rect) - 16.0;
         // Wake up for the next minute even when nothing plays.
         let secs = chrono::Timelike::second(&chrono::Local::now()) as u64;
         ui.ctx().request_repaint_after(std::time::Duration::from_secs(60 - secs.min(59)));
+    }
+    if app.settings.show_beats
+        && let Some(now) = &app.now
+    {
+        let quarters = now.timeline.tempo.quarters(app.synth.time());
+        beat_dots(&painter, pos2(corner, rect.top() + 18.0 + 10.0), quarters, app.synth.state() == PlayState::Playing, palette);
     }
 
     let t = app.lyric_time();
@@ -157,12 +167,46 @@ fn classic(painter: &Painter, now: &mut NowPlaying, rect: Rect, base: f32, max_w
     }
 }
 
-/// `HH:MM`, local time, top right.
-fn wall_clock(painter: &Painter, rect: Rect) {
+/// `HH:MM`, local time, top right. Returns its left edge.
+fn wall_clock(painter: &Painter, rect: Rect) -> f32 {
     let now = chrono::Local::now().format("%H:%M").to_string();
     let pos = pos2(rect.right() - 18.0, rect.top() + 18.0);
     let r = painter.text(pos, Align2::RIGHT_TOP, now, FontId::proportional(17.0), TEXT.gamma_multiply(0.8));
-    painter.text(pos2(r.left() - 8.0, r.center().y), Align2::RIGHT_CENTER, icons::CLOCK, FontId::proportional(14.0), DIM);
+    painter.text(pos2(r.left() - 8.0, r.center().y), Align2::RIGHT_CENTER, icons::CLOCK, FontId::proportional(14.0), DIM).left()
+}
+
+/// Beats per bar the dots count (songs are taken as 4/4 from their start).
+const BAR: usize = 4;
+
+/// Four dots ending at `right_center`, like a metronome: the beat of the
+/// bar lights up (the first in the wipe colour) and fades until the next;
+/// the beats already gone in the bar stay faintly lit.
+fn beat_dots(painter: &Painter, right_center: Pos2, quarters: f64, playing: bool, pal: Palette) {
+    let (beat, phase) = beat_in_bar(quarters);
+    let (r, step) = (4.5, 15.0);
+    for k in 0..BAR {
+        let c = pos2(right_center.x - r - (BAR - 1 - k) as f32 * step, right_center.y);
+        let color = if k == 0 { pal.wipe } else { pal.sung };
+        painter.circle_filled(c, r, DIM.gamma_multiply(0.35));
+        if !playing {
+            if k == beat {
+                painter.circle_stroke(c, r, Stroke::new(1.5, color.gamma_multiply(0.7)));
+            }
+            continue;
+        }
+        if k == beat {
+            let flash = (1.0 - phase).powi(2);
+            painter.circle_filled(c, r + 2.0 * flash, color.gamma_multiply(0.55 + 0.45 * flash));
+        } else if k < beat {
+            painter.circle_filled(c, r, color.gamma_multiply(0.3));
+        }
+    }
+}
+
+/// The beat of the bar (0-based) and how far into it, at `quarters`.
+fn beat_in_bar(quarters: f64) -> (usize, f32) {
+    let q = quarters.max(0.0);
+    ((q.floor() as usize) % BAR, q.fract() as f32)
 }
 
 /// The line to centre: the focus line, or the next one once the focus line
@@ -380,6 +424,15 @@ fn idle(painter: &Painter, rect: Rect, no_font: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn beats_count_one_to_four() {
+        assert_eq!(beat_in_bar(0.0), (0, 0.0));
+        assert_eq!(beat_in_bar(1.25), (1, 0.25));
+        assert_eq!(beat_in_bar(3.5).0, 3);
+        assert_eq!(beat_in_bar(4.0).0, 0, "a new bar");
+        assert_eq!(beat_in_bar(-2.0), (0, 0.0), "before the song");
+    }
     use crate::timeline::Syllable;
 
     fn line(start: f64, end: f64) -> Line {
