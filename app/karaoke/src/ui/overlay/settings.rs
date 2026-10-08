@@ -1,5 +1,5 @@
 //! Settings popup: a sidebar of sections (song library, audio output,
-//! lyrics, displays, shortcuts, data files) and the chosen section's cards beside
+//! lyrics, background, displays, shortcuts, data files) and the chosen section's cards beside
 //! it. SoundFonts and instrument sounds have their own window
 //! (`ui::sound`); the effect chain lives in the mixer.
 
@@ -17,6 +17,7 @@ pub enum Section {
     Library,
     Audio,
     Lyrics,
+    Background,
     Display,
     Keys,
     Files,
@@ -48,6 +49,7 @@ const KEYS: [(&str, &[(&str, &str)]); 3] = [
             ("S", "เสียงและ SoundFont"),
             ("F  F11", "เต็มจอ (Esc ออก)"),
             ("D", "เปิด / ปิดจอที่สอง"),
+            ("B", "รูปพื้นหลังถัดไป (โฟลเดอร์รูป)"),
             ("Tab", "สลับเพลง / คิว"),
         ],
     ),
@@ -81,6 +83,7 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui, section: &mut Section, max_
                         Section::Library => library(app, ui),
                         Section::Audio => audio(app, ui),
                         Section::Lyrics => lyrics(app, ui),
+                        Section::Background => background(app, ui),
                         Section::Display => display(app, ui),
                         Section::Keys => keys(ui),
                         Section::Files => files(app, ui),
@@ -97,6 +100,7 @@ fn sidebar(app: &KaraokeApp, ui: &mut egui::Ui, section: &mut Section) {
         (Section::Library, icons::DATABASE, "คลังเพลง", app.library.db.songs.len().to_string()),
         (Section::Audio, icons::HEADPHONES, "เสียงออก", String::new()),
         (Section::Lyrics, icons::TYPE, "เนื้อร้อง", String::new()),
+        (Section::Background, icons::IMAGE, "พื้นหลัง", String::new()),
         (Section::Display, icons::MONITOR, "จอแสดงผล", if app.settings.second_screen.open { "2 จอ".into() } else { String::new() }),
         (Section::Keys, icons::KEYBOARD, "ปุ่มลัด", String::new()),
         (Section::Files, icons::FOLDER_OPEN, "ไฟล์ข้อมูล", String::new()),
@@ -420,6 +424,119 @@ fn midi(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             });
         }
     });
+}
+
+// ---------------------------------------------------------------- background
+
+fn background(app: &mut KaraokeApp, ui: &mut egui::Ui) {
+    use crate::config::{BgFit, BgSource};
+    title(ui, "พื้นหลัง", "รูปหลังเนื้อร้อง ใช้ทั้งจอหลักและจอที่สอง  ·  B ข้ามไปรูปถัดไป");
+    card(ui, |ui| {
+        card_title(ui, icons::IMAGE, "รูปพื้นหลัง", "รูปของคุณเอง หรือโฟลเดอร์รูปที่เปลี่ยนไปเรื่อย ๆ (png, jpg, webp, bmp, gif)");
+        ui.add_space(4.0);
+        let cols = 3.0;
+        let gap = 10.0;
+        let w = ((ui.available_width() - gap * (cols - 1.0)) / cols).floor();
+        let size = vec2(w, (w * 9.0 / 16.0).round());
+        let source = app.settings.background.source.clone();
+        let mut pick = None;
+        ui.spacing_mut().item_spacing = vec2(gap, gap);
+        ui.horizontal_wrapped(|ui| {
+            if bg_tile(ui, size, None, icons::REMOVE, "ไม่มี", source == BgSource::Plain) {
+                pick = Some(BgSource::Plain);
+            }
+            let own = |s: &BgSource| matches!(s, BgSource::Image(_));
+            let preview = |s: &BgSource| app.backdrop.current().filter(|_| own(s) || matches!(s, BgSource::Folder(_))).map(|(id, _)| id);
+            if bg_tile(ui, size, preview(&source).filter(|_| own(&source)), icons::IMAGE, "รูปของฉัน…", own(&source)) {
+                let start = match &source {
+                    BgSource::Image(p) => Some(p.clone()),
+                    _ => None,
+                };
+                app.dialogs.ask(Pick::BackgroundImage, start);
+            }
+            let folder = matches!(source, BgSource::Folder(_));
+            if bg_tile(ui, size, preview(&source).filter(|_| folder), icons::IMAGES, "โฟลเดอร์ (สไลด์โชว์)…", folder) {
+                let start = match &source {
+                    BgSource::Folder(p) => Some(p.clone()),
+                    _ => None,
+                };
+                app.dialogs.ask(Pick::BackgroundFolder, start);
+            }
+        });
+        if let Some(s) = pick {
+            app.settings.background.source = s;
+        }
+        if let BgSource::Image(p) | BgSource::Folder(p) = &app.settings.background.source {
+            ui.add_space(2.0);
+            let text = p.display().to_string();
+            ui.add(egui::Label::new(RichText::new(format!("{}  {text}", icons::FOLDER_OPEN)).size(12.0).color(DIM)).truncate()).on_hover_text(text);
+        }
+    });
+    let bg = &mut app.settings.background;
+    let pictured = bg.source != BgSource::Plain;
+    card(ui, |ui| {
+        ui.add_enabled_ui(pictured, |ui| {
+            row(ui, "ความมืดของรูป", "ทำให้รูปมืดลงให้อ่านเนื้อร้องง่าย", |ui| {
+                ui.spacing_mut().slider_width = 200.0;
+                ui.add(percent(egui::Slider::new(&mut bg.dim, 0.0..=0.9)));
+            });
+            ui.separator();
+            row(ui, "การวางรูป", "รูปที่สัดส่วนไม่ตรงกับจอ", |ui| {
+                crate::ui::fixed_width(ui, 200.0, |ui| {
+                    egui::ComboBox::from_id_salt("bg-fit").selected_text(bg.fit.label()).width(200.0).show_ui(ui, |ui| {
+                        for fit in BgFit::ALL {
+                            ui.selectable_value(&mut bg.fit, fit, fit.label());
+                        }
+                    })
+                });
+            });
+            ui.separator();
+            row(ui, "เคลื่อนไหวช้า ๆ", "เลื่อนและซูมรูปช้า ๆ (ไม่ใช้กับ \"เห็นทั้งรูป\")", |ui| {
+                switch(ui, &mut bg.motion);
+            });
+        });
+        ui.separator();
+        let folder = matches!(bg.source, BgSource::Folder(_));
+        ui.add_enabled_ui(folder, |ui| {
+            row(ui, "เปลี่ยนรูปทุก", "สำหรับโฟลเดอร์รูป  ·  B ข้ามไปรูปถัดไป", |ui| {
+                ui.spacing_mut().slider_width = 200.0;
+                ui.add(egui::Slider::new(&mut bg.slide_secs, 5..=300).suffix(" วินาที").logarithmic(true));
+            });
+        });
+    });
+}
+
+/// A background choice: a picture (or an icon) with its name under it;
+/// returns true when clicked.
+fn bg_tile(ui: &mut egui::Ui, size: egui::Vec2, picture: Option<egui::TextureId>, icon: &str, name: &str, on: bool) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(size + vec2(0.0, 22.0), Sense::click());
+    let pic = Rect::from_min_size(rect.min, size);
+    let p = ui.painter();
+    match picture {
+        Some(id) => {
+            egui::Image::from_texture(egui::load::SizedTexture::new(id, size)).corner_radius(8).paint_at(ui, pic);
+        }
+        None => {
+            p.rect_filled(pic, CornerRadius::same(8), INK);
+            p.text(pic.center(), Align2::CENTER_CENTER, icon, FontId::proportional(22.0), if resp.hovered() { TEXT } else { DIM });
+        }
+    }
+    let stroke = if on {
+        Stroke::new(2.0, SUNG)
+    } else if resp.hovered() {
+        Stroke::new(1.0, DIM)
+    } else {
+        Stroke::new(1.0, LINE)
+    };
+    p.rect_stroke(pic, CornerRadius::same(8), stroke, egui::StrokeKind::Inside);
+    if on {
+        let badge = pos2(pic.right() - 14.0, pic.top() + 14.0);
+        p.circle_filled(badge, 9.0, SUNG);
+        p.text(badge, Align2::CENTER_CENTER, icons::CHECK, FontId::proportional(11.0), INK);
+    }
+    let clip = Rect::from_min_max(pos2(rect.left(), pic.bottom()), rect.max);
+    p.with_clip_rect(clip).text(pos2(rect.left() + 2.0, pic.bottom() + 11.0), Align2::LEFT_CENTER, name, FontId::proportional(12.5), if on { SUNG } else { TEXT });
+    resp.clicked()
 }
 
 // ------------------------------------------------------------------- display

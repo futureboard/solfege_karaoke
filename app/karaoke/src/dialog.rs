@@ -21,6 +21,10 @@ pub enum Pick {
     SongFolder,
     /// A font file for the lyrics.
     LyricFont,
+    /// A picture for the stage background.
+    BackgroundImage,
+    /// A folder of pictures shown one after another.
+    BackgroundFolder,
 }
 
 impl Pick {
@@ -29,6 +33,8 @@ impl Pick {
             Pick::SoundFonts => "เลือก SoundFont / SFZ",
             Pick::SongFolder => "เลือกโฟลเดอร์เพลง (NCN หรือ .sfkar)",
             Pick::LyricFont => "เลือกฟอนต์เนื้อร้อง",
+            Pick::BackgroundImage => "เลือกรูปพื้นหลัง",
+            Pick::BackgroundFolder => "เลือกโฟลเดอร์รูปพื้นหลัง (สไลด์โชว์)",
         }
     }
 }
@@ -73,15 +79,19 @@ impl Dialogs {
                     ctx.request_repaint();
                 });
             }
-            Pick::LyricFont => {
-                let picked = dialog.add_filter("Font", &["ttf", "otf", "ttc"]).pick_file();
+            Pick::LyricFont | Pick::BackgroundImage => {
+                let (name, ext): (&str, &[&str]) = match pick {
+                    Pick::LyricFont => ("Font", &["ttf", "otf", "ttc"]),
+                    _ => ("Image", crate::background::EXTENSIONS),
+                };
+                let picked = dialog.add_filter(name, ext).pick_file();
                 std::thread::spawn(move || {
                     let paths = pollster::block_on(picked).map(|f| f.path().to_path_buf()).into_iter().collect();
                     let _ = tx.send(paths);
                     ctx.request_repaint();
                 });
             }
-            Pick::SongFolder => {
+            Pick::SongFolder | Pick::BackgroundFolder => {
                 let picked = dialog.pick_folder();
                 std::thread::spawn(move || {
                     let paths = pollster::block_on(picked).map(|f| f.path().to_path_buf()).into_iter().collect();
