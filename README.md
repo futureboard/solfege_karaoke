@@ -82,6 +82,11 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   `Q`, `Tab` between them); all commands (`Ctrl K`), settings (`Ctrl ,`)
   and About open as popups of their own. Every popup and window can be
   dragged by its title bar (double-click it to put it back).
+- **Fonts.** The interface uses Noto Sans on Linux and the system font
+  elsewhere: San Francisco (Thonburi for Thai) on macOS, Segoe UI with
+  Tahoma for Thai on Windows. The bundled Noto Sans and Noto Sans Thai
+  fill in whatever a system font lacks; the lyrics use their own bundled
+  bold fonts (or the font chosen in Settings).
 - **Settings.** Sections for the song library (folders, counts, rescan),
   audio output (device, volume, guide melody), lyrics (layout, size with
   a live sample, outline thickness, timing, clock, font, colours),

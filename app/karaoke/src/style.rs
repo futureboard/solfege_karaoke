@@ -1,5 +1,7 @@
-//! Fonts and colours. Thai text needs fonts egui does not ship, so the app
-//! bundles Noto Sans Thai (UI fallback) and a bold pair for the lyrics.
+//! Fonts and colours. The UI uses Noto Sans on Linux and the system's own
+//! font on macOS (San Francisco, Thonburi for Thai) and Windows (Segoe UI,
+//! Tahoma for Thai); Noto Sans and Noto Sans Thai are bundled behind them
+//! for whatever is missing. The lyrics use a bundled bold pair everywhere.
 
 use std::sync::Arc;
 
@@ -61,6 +63,31 @@ fn find_system_fallback() -> Option<FontData> {
     CANDIDATES.iter().find_map(|p| std::fs::read(p).ok()).map(FontData::from_owned)
 }
 
+/// The UI's own text fonts for this system, first to last, read once.
+/// Empty when none of them is installed (the bundled Noto Sans is used).
+fn system_ui_fonts() -> &'static [(String, Arc<FontData>)] {
+    static FONTS: std::sync::OnceLock<Vec<(String, Arc<FontData>)>> = std::sync::OnceLock::new();
+    FONTS.get_or_init(|| {
+        // (name, candidate files): the first file found of each entry.
+        let wanted: Vec<(&str, Vec<std::path::PathBuf>)> = if cfg!(target_os = "macos") {
+            let sys = |f: &str| std::path::Path::new("/System/Library/Fonts").join(f);
+            vec![
+                ("system-ui", vec![sys("SFNS.ttf"), sys("SFNSText.ttf"), sys("HelveticaNeue.ttc"), sys("Helvetica.ttc")]),
+                ("system-thai", vec![sys("Thonburi.ttc"), sys("Supplemental/Thonburi.ttc"), sys("Thonburi.ttf")]),
+            ]
+        } else if cfg!(windows) {
+            let dir = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into())).join("Fonts");
+            vec![("system-ui", vec![dir.join("segoeui.ttf")]), ("system-thai", vec![dir.join("tahoma.ttf")])]
+        } else {
+            Vec::new()
+        };
+        wanted
+            .into_iter()
+            .filter_map(|(name, files)| files.iter().find_map(|f| load_font(f).ok()).map(|data| (name.to_string(), Arc::new(data))))
+            .collect()
+    })
+}
+
 /// Read a font file for the lyrics, checking that it is a font egui can
 /// use (a bad file would otherwise fail inside the renderer).
 pub fn load_font(path: &std::path::Path) -> Result<FontData, String> {
@@ -87,6 +114,7 @@ pub fn set_fonts(ctx: &egui::Context, lyric_font: Option<FontData>) {
     let add = |fonts: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
         fonts.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));
     };
+    add(&mut fonts, "noto-sans", include_bytes!("../assets/fonts/NotoSans-Regular.ttf"));
     add(&mut fonts, "noto-thai", include_bytes!("../assets/fonts/NotoSansThai-Regular.ttf"));
     add(&mut fonts, "noto-thai-bold", include_bytes!("../assets/fonts/NotoSansThai-Bold.ttf"));
     add(&mut fonts, "noto-sans-bold", include_bytes!("../assets/fonts/NotoSans-Bold.ttf"));
@@ -97,8 +125,24 @@ pub fn set_fonts(ctx: &egui::Context, lyric_font: Option<FontData>) {
         fonts.font_data.insert("system-fallback".into(), data);
         "system-fallback".to_string()
     });
+    // The system's UI fonts (none on Linux), then Noto Sans for the rest.
+    let mut text: Vec<String> = system_ui_fonts()
+        .iter()
+        .map(|(name, data)| {
+            fonts.font_data.insert(name.clone(), data.clone());
+            name.clone()
+        })
+        .collect();
+    text.push("noto-sans".into());
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        let proportional = family == FontFamily::Proportional;
         let list = fonts.families.entry(family).or_default();
+        if proportional {
+            // Ahead of egui's own font, which stays behind for anything else.
+            for (i, name) in text.iter().enumerate() {
+                list.insert(i, name.clone());
+            }
+        }
         // Lucide first: its private-use code points would otherwise hit the
         // icon font egui ships. It has no other glyphs, so text falls through.
         list.insert(0, "lucide".into());
@@ -108,7 +152,7 @@ pub fn set_fonts(ctx: &egui::Context, lyric_font: Option<FontData>) {
     // Thai first so a Thai phrase and its spaces shape as one run; Latin
     // letters fall through to Noto Sans.
     let mut lyrics = vec!["noto-thai-bold".to_string(), "noto-sans-bold".to_string()];
-    lyrics.extend(fonts.families[&FontFamily::Proportional].iter().cloned());
+    lyrics.extend(fonts.families[&FontFamily::Proportional].iter().filter(|n| !lyrics.contains(n)).cloned().collect::<Vec<_>>());
     if let Some(data) = lyric_font {
         fonts.font_data.insert("lyric-custom".into(), Arc::new(data));
         lyrics.insert(0, "lyric-custom".into());
