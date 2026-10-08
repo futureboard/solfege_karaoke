@@ -89,6 +89,16 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 - **Full screen** (`F`, `F11` or double-click the stage) fills the screen
   and keeps everything: bottom bar, mixer, overlays and windows. Type to filter, arrows to move, Enter to
   act.
+- **MIDI I/O.** Settings › audio picks the **MIDI Output**: the
+  *Solfege Engine* (the built-in SoundFont synth) or any MIDI device: a
+  keyboard, a sound module, or a synth on the computer (on Windows,
+  "Microsoft GS Wavetable Synth"). For a device the player still keeps
+  time; the key, mute / solo, the guide-melody switch and VOL (as GM
+  Master Volume) still apply, GM / GS / XG resets and drum parts are
+  passed on, and every note-off goes to the key its note-on went to.
+  SoundFonts, faders and effects only shape the engine's own sound. A
+  **MIDI Input** (a keyboard to play along) plays wherever the song plays,
+  on its own channels or moved to one channel (16, for instance).
 - **Second screen (dual display)** (`D`). A window of its own with only
   the lyrics, for a TV or projector, while the main window keeps the
   controls. Drag it onto the other display and press `F` (or double-click)
@@ -203,7 +213,7 @@ under Settings):
 
 | File | What it holds |
 |---|---|
-| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size, offset, outline, colours and font, the second screen's place. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, MIDI output and input, lyric size, offset, outline, colours and font, the second screen's place. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
 | `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
 
 Settings and catalogues of older versions (eframe's `app.ron`,

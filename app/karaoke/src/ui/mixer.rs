@@ -91,7 +91,13 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.label(egui::RichText::new(format!("{}  มิกเซอร์", icons::MIXER)).strong().color(TEXT));
-            ui.label(egui::RichText::new("ลากเพื่อปรับ · ดับเบิลคลิกค่าเริ่มต้น · REV / CHO ส่งเข้าเอฟเฟกต์ · ช่อง 10 คุมกลองทั้งชุด").size(12.0).color(DIM));
+            if let Some(device) = app.synth.midi_output() {
+                // The song plays on a MIDI device: only mute / solo reach it.
+                let note = format!("{}  เพลงเล่นออก MIDI: {device} — ใช้ได้เฉพาะ M / S", icons::KEY);
+                ui.add(egui::Label::new(egui::RichText::new(note).size(12.0).color(crate::style::SUNG)).truncate());
+            } else {
+                ui.label(egui::RichText::new("ลากเพื่อปรับ · ดับเบิลคลิกค่าเริ่มต้น · REV / CHO ส่งเข้าเอฟเฟกต์ · ช่อง 10 คุมกลองทั้งชุด").size(12.0).color(DIM));
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(icons::REMOVE).on_hover_text("ปิดมิกเซอร์ (M)").clicked() {
                     app.mixer_open = false;

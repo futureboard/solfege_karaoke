@@ -41,6 +41,12 @@ pub struct Settings {
     /// Master effect slots, in processing order (`null` = empty).
     pub inserts: [Option<InsertParams>; INSERT_SLOTS],
     pub device: Option<String>,
+    /// MIDI device that plays the songs (`None` = the Solfege Engine).
+    pub midi_out: Option<String>,
+    /// MIDI keyboard that plays along, and the channel (0-based) it is
+    /// moved to (`None` = its own channels).
+    pub midi_in: Option<String>,
+    pub midi_in_channel: Option<u8>,
     pub volume: f32,
     /// Lyric size relative to the stage height.
     pub lyric_scale: f32,
@@ -158,6 +164,9 @@ impl Default for Settings {
             fx: FxParams::default(),
             inserts: [None; INSERT_SLOTS],
             device: None,
+            midi_out: None,
+            midi_in: None,
+            midi_in_channel: None,
             volume: 0.8,
             lyric_scale: 1.0,
             lyric_offset_ms: 0,
@@ -284,6 +293,8 @@ mod tests {
         s.fx.reverb_room = 0.9;
         s.lyric_colors = LyricColors::PRESETS[2].1;
         s.lyric_outline = 2.5;
+        s.midi_out = Some("USB MIDI Interface".into());
+        s.midi_in_channel = Some(15);
         s.second_screen = SecondScreen { open: true, fullscreen: true, pos: Some([1920.0, 0.0]), monitor: Some(1), ..SecondScreen::default() };
         s.lyric_font = Some(PathBuf::from("/fonts/lyrics.ttf"));
         file.save(&s).unwrap();
@@ -302,6 +313,8 @@ mod tests {
         assert!(back.lyric_colors == LyricColors::PRESETS[2].1);
         assert_eq!(back.lyric_font, s.lyric_font);
         assert_eq!(back.lyric_outline, 2.5);
+        assert_eq!(back.midi_out.as_deref(), Some("USB MIDI Interface"));
+        assert_eq!(back.midi_in_channel, Some(15));
         assert_eq!(back.second_screen, s.second_screen);
 
         // Hand-edited with fields missing: defaults fill in.
