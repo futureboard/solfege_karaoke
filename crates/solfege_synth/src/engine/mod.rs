@@ -4,6 +4,7 @@
 //! thread) and atomics for metering.
 
 mod dsp;
+pub mod inserts;
 pub mod mixer;
 mod slot;
 
@@ -128,6 +129,10 @@ pub enum Command {
     /// Preset to use per program number on the slot's filtered channels
     /// (`NO_PRESET` = resolve the program as usual).
     SetProgramMap { slot: usize, map: Box<[u16; 128]> },
+    /// Put an effect in a master effect slot (`None` = empty slot).
+    SetInsert { slot: usize, insert: Option<Box<inserts::Insert>> },
+    /// New values for the effect already in a slot.
+    SetInsertParams { slot: usize, params: inserts::InsertParams },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -155,6 +160,7 @@ pub enum Garbage {
     Inst(#[allow(dead_code)] Arc<Instrument>),
     Song(#[allow(dead_code)] Arc<Song>),
     ProgramMap(#[allow(dead_code)] Box<[u16; 128]>),
+    Insert(#[allow(dead_code)] Box<inserts::Insert>),
 }
 
 /// Packed per-channel state of a slot, published for the Channels view.
@@ -382,6 +388,8 @@ pub struct Engine {
     reverb: Reverb,
     chorus: Chorus,
     fx: FxParams,
+    /// Master effect slots, in processing order.
+    inserts: [Option<Box<inserts::Insert>>; inserts::INSERT_SLOTS],
 }
 
 impl Engine {
@@ -401,6 +409,7 @@ impl Engine {
             chorus_in: Bus::new(),
             reverb: Reverb::new(sr),
             chorus: Chorus::new(sr),
+            inserts: std::array::from_fn(|_| None),
             fx: FxParams::default(),
         }
     }
@@ -618,6 +627,20 @@ impl Engine {
                 }
             }
             Command::SetFx(fx) => self.fx = fx.clamped(),
+            Command::SetInsert { slot, insert } => {
+                if let Some(place) = self.inserts.get_mut(slot) {
+                    if let Some(old) = std::mem::replace(place, insert) {
+                        self.trash(Garbage::Insert(old));
+                    }
+                } else if let Some(insert) = insert {
+                    self.trash(Garbage::Insert(insert));
+                }
+            }
+            Command::SetInsertParams { slot, params } => {
+                if let Some(Some(fx)) = self.inserts.get_mut(slot) {
+                    fx.set(params);
+                }
+            }
             Command::SetProgramMap { slot, map } => match self.slots.get_mut(slot) {
                 Some(s) => {
                     let old = std::mem::replace(&mut s.program_map, map);
@@ -813,6 +836,11 @@ impl Engine {
                 head[0].r[i] += tail[0].r[i];
             }
             tail[0].clear(frames);
+        }
+        // Master effect slots on the main output.
+        let (main, _) = self.buses.split_at_mut(1);
+        for fx in self.inserts.iter_mut().flatten() {
+            fx.process(&mut main[0].l[..frames], &mut main[0].r[..frames]);
         }
         for (bi, b) in self.buses.iter_mut().enumerate() {
             let (mut pl, mut pr) = (0f32, 0f32);

@@ -133,7 +133,7 @@ impl FxParams {
 }
 
 pub const GM_GROUP_NAMES: [&str; MAX_GROUPS] =
-    ["Kick", "Snare", "Hi-Hat", "Toms", "Cymbals", "Percussion", "Group 7", "Group 8"];
+    ["Kick", "Snare", "Hi-Hat", "Toms", "Cymbals", "Percussion", "Cowbell", "Group 8"];
 
 /// Note -> group map for channel 10. `NO_GROUP` keeps the note on the
 /// channel-10 strip.
@@ -155,6 +155,7 @@ impl NoteGroups {
             (&[42, 44, 46][..], 2),
             (&[41, 43, 45, 47, 48, 50][..], 3),
             (&[49, 51, 52, 53, 55, 57, 59][..], 4),
+            (&[56][..], 6),
         ] {
             for &n in notes {
                 map[n as usize] = g;

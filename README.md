@@ -35,15 +35,17 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | | |
 |---|---|
 | ![Song search](docs/screenshots/songs.png) | ![Mixer](docs/screenshots/mixer.png) |
-| Song search overlay (`/`) | Mixer panel (`M`) |
+| Song search overlay (`/`) | Mixer panel (`M`): strips scroll sideways, effect chain on the right |
 | ![SoundFonts per channel](docs/screenshots/sounds.png) | ![Sounds per instrument](docs/screenshots/instruments.png) |
 | Sound settings window (`S`): SoundFont per channel | A sound for any GM instrument |
 | ![Count-in](docs/screenshots/count-in.png) | ![Context menu](docs/screenshots/context-menu.png) |
 | Four-beat count-in after a long rest | Right-click menu on the stage |
 | ![Classic lyrics](docs/screenshots/classic.png) | ![About](docs/screenshots/about.png) |
 | Classic layout: two lines that take turns (`L`) | About page |
-| ![A kit per drum piece](docs/screenshots/drum-pieces.png) | |
-| Kick, snare, ... each from its own SoundFont and kit | |
+| ![A kit per drum piece](docs/screenshots/drum-pieces.png) | ![Effect editor](docs/screenshots/effects.png) |
+| Kick, snare, ... each from its own SoundFont and kit | Effect slot editor (popup over the mixer) |
+| ![Settings](docs/screenshots/settings.png) | ![Second screen](docs/screenshots/second-screen.png) |
+| Settings popup (`Ctrl ,`): lyric font and colours | Second screen (`D`): lyrics on the TV, controls on the laptop |
 
 ## What is in here
 
@@ -65,10 +67,21 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   lines drift up, or *classic*, two fixed lines in the middle that take
   turns. A title card shows before the singing starts, four dots count
   in after a long rest, and the time of day sits in the corner.
+  The lyric colours (still to sing, sung, the wipe edge, outline) come
+  from six presets or a colour picker each, the outline's thickness goes
+  from none to four times the default, and the lyrics can use any
+  `.ttf` / `.otf` / `.ttc` font (letters it lacks fall back to Noto Sans
+  Thai).
 - **Guide melody off** (`V`). Mutes MIDI channel 9, where NCN songs
   carry the vocal melody, in every song until turned back on.
-- **Command overlay.** Songs, queue, commands and settings live in one
-  panel over the stage.
+- **Overlays.** Songs and queue share one panel over the stage (`/`,
+  `Q`, `Tab` between them); all commands (`Ctrl K`), settings (`Ctrl ,`)
+  and About open as popups of their own. Every popup and window can be
+  dragged by its title bar (double-click it to put it back).
+- **Settings.** Sections for the song library (folders, counts, rescan),
+  audio output (device, volume, guide melody), lyrics (layout, size with
+  a live sample, outline thickness, timing, clock, font, colours),
+  shortcuts and the data files.
 - **Context menus.** Right click the stage or the bottom bar for
   playback, key and tempo, every panel and full screen; right click a
   song, a queued song, a mixer strip, a SoundFont or a channel for what
@@ -76,9 +89,17 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 - **Full screen** (`F`, `F11` or double-click the stage) fills the screen
   and keeps everything: bottom bar, mixer, overlays and windows. Type to filter, arrows to move, Enter to
   act.
+- **Second screen (dual display)** (`D`). A window of its own with only
+  the lyrics, for a TV or projector, while the main window keeps the
+  controls. Drag it onto the other display and press `F` (or double-click)
+  for full screen there, or pick the display in Settings; it reopens in
+  the same place, full screen if it was. The pointer hides on it after
+  two seconds, and every shortcut works from it too.
 - **Song catalogue.** Any number of NCN libraries and `.sfkar` folders in
   one searchable list, with favourites and play counts, kept in an SQLite
-  database (`songs.dat`); songs can be queued.
+  database (`songs.dat`); songs can be queued. A folder of `.sfkar` files
+  converted from an NCN library lists its own copies next to the NCN
+  ones, each tagged NCN or SFKAR.
 - **Native file dialogs.** SoundFonts and song folders are picked with
   the system's own dialog: the common item dialog on Windows, NSOpenPanel
   on macOS and the XDG desktop portal on Linux (the desktop's file chooser
@@ -88,11 +109,18 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 - **Mixer.** Its own panel, docked under the lyrics: all 16 MIDI channels
   (channel 10 is the fader for the whole drum kit), each drum-kit piece,
   reverb and chorus returns and master, with gain, pan, mute, solo,
-  reverb / chorus sends and meters. Pan and sends start from the song's
+  reverb / chorus sends and meters. Strips keep a readable width; when
+  they do not all fit, a scrollbar (or the mouse wheel) slides them
+  sideways. Pan and sends start from the song's
   own values (MIDI CC 10, 91, 93) and your adjustment goes on top;
   double-click returns to the song's value. The reverb (room, damping,
   width) and chorus (rate, depth, delay) are adjustable on their return
   strips and remembered between runs.
+- **Master effect chain.** Ten effect slots in a sidebar on the right of
+  the mixer, run in order on the main output: EQ, compressor, limiter,
+  delay, reverb, chorus, drive, filter and stereo width. Click a slot to
+  edit it in a popup; each can be bypassed, moved or cleared (right
+  click), and the chain is saved in `config.json`.
 - **Sound settings window.** SoundFonts, channels, instruments and the
   drum kit have their own window (`S` or the bar button), separate from
   the command overlay.
@@ -101,8 +129,8 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
   or choose the sound of any of the 128 General MIDI instruments, from
   any font, for whichever channel plays it.
 - **Drum kit lock.** Lock channel 10 to one kit; songs cannot change it.
-- **A kit per drum piece.** Kick, snare, hi-hat, toms, cymbals and
-  percussion can each play from a kit of their own, from any SoundFont;
+- **A kit per drum piece.** Kick, snare, hi-hat, toms, cymbals, cowbell
+  and percussion can each play from a kit of their own, from any SoundFont;
   the pieces left alone play from channel 10's kit. Their mixer strips
   work the same either way.
 
@@ -118,10 +146,11 @@ SoundFont พร้อมเนื้อร้องที่ไล่สีท�
 | `V` | guide melody (channel 9) on / off | `L` | lyric layout |
 | `N` | next song in the queue | `Ctrl K` | all commands |
 | `F` / `F11` | full screen (`Esc` leaves) | `Ctrl ,` | settings |
-| right click | context menu | | |
+| `D` | second screen on / off | right click | context menu |
 
-In the overlay: `Enter` reserves a song, `Shift Enter` sings it now,
-`Ctrl D` marks a favourite, `Tab` switches page and `Esc` closes.
+In the song / queue panel: `Enter` reserves a song, `Shift Enter` sings it
+now, `Ctrl D` marks a favourite, `Tab` switches between songs and queue and
+`Esc` closes; `Esc` closes any popup.
 
 ## Getting started
 
@@ -174,7 +203,7 @@ under Settings):
 
 | File | What it holds |
 |---|---|
-| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size and offset. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
+| `config.json` | Settings as readable JSON: SoundFont rack and routing, sounds per instrument, drum kit lock, reverb / chorus, audio device, lyric size, offset, outline, colours and font, the second screen's place. Edit it while the player is closed; missing fields take their defaults. `--config <FILE>` uses another file. |
 | `songs.dat` | The song catalogue, an SQLite database: song folders, songs, favourites and play history. |
 
 Settings and catalogues of older versions (eframe's `app.ron`,

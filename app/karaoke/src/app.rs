@@ -62,6 +62,8 @@ pub struct KaraokeApp {
     pub overlay: Option<Overlay>,
     /// The mixer panel, docked above the bottom bar.
     pub mixer_open: bool,
+    /// Effect slot whose editor is open (popup over the stage).
+    pub effect_editor: Option<usize>,
     /// The sound settings window (SoundFonts, channels, instruments, drums).
     pub sound: Option<SoundPanel>,
     pub devices: Vec<String>,
@@ -71,6 +73,8 @@ pub struct KaraokeApp {
     pub scrub: Option<f64>,
     pending_song: Option<String>,
     clock: f64,
+    /// The second screen's window as it was opened (see `ui::screen2`).
+    pub second_window: Option<egui::ViewportBuilder>,
 }
 
 impl KaraokeApp {
@@ -100,6 +104,7 @@ impl KaraokeApp {
             fullscreen: false,
             overlay: None,
             mixer_open: false,
+            effect_editor: None,
             sound: None,
             devices: Vec::new(),
             renderer: cc.wgpu_render_state.as_ref().map_or_else(
@@ -111,8 +116,18 @@ impl KaraokeApp {
             ),
             scrub: None,
             pending_song: launch.song,
+            second_window: None,
             clock: 0.0,
         };
+        if let Some(path) = app.settings.lyric_font.clone() {
+            match crate::style::load_font(&path) {
+                Ok(data) => crate::style::set_fonts(&cc.egui_ctx, Some(data)),
+                Err(e) => {
+                    app.settings.lyric_font = None;
+                    app.toast_error(format!("ใช้ฟอนต์เนื้อร้องไม่ได้ กลับไปใช้ฟอนต์เดิม — {e}"));
+                }
+            }
+        }
         if let Some(e) = config_error {
             app.toast_error(format!("อ่านไฟล์ตั้งค่าไม่ได้ ใช้ค่าเริ่มต้น (เก็บไฟล์เดิมเป็น .bak): {e}"));
         }
@@ -140,6 +155,9 @@ impl KaraokeApp {
         app.synth.set_drum_lock(app.settings.drum_lock);
         app.synth.set_fx(app.settings.fx);
         app.synth.set_melody_off(app.settings.melody_off);
+        for (slot, params) in app.settings.inserts.into_iter().enumerate() {
+            app.synth.set_insert(slot, params);
+        }
         for saved in app.settings.instruments.clone() {
             if let Some(font) = app.synth.fonts().iter().position(|f| f.path == saved.font) {
                 let sound = InstrumentSound { font, bank: saved.bank, program: saved.program };
@@ -301,6 +319,7 @@ impl KaraokeApp {
                 match pick {
                     Pick::SoundFonts => self.add_soundfont(path),
                     Pick::SongFolder => self.add_source(path),
+                    Pick::LyricFont => self.set_lyric_font(ctx, Some(path)),
                 }
             }
         }
@@ -354,9 +373,10 @@ impl KaraokeApp {
         self.sound = Some(SoundPanel::new());
     }
 
-    fn shortcuts(&mut self, ctx: &egui::Context) {
+    /// Keys of the main window; the second screen passes its keys here too.
+    pub fn shortcuts(&mut self, ctx: &egui::Context) {
         // The overlay handles its own keys.
-        if self.overlay.is_some() || self.sound.is_some() || ctx.egui_wants_keyboard_input() {
+        if self.overlay.is_some() || self.sound.is_some() || self.effect_editor.is_some() || ctx.egui_wants_keyboard_input() {
             return;
         }
         use egui::{Key, Modifiers};
@@ -381,11 +401,18 @@ impl KaraokeApp {
         if pressed(Key::S) {
             return self.open_sound();
         }
+        if pressed(Key::E) {
+            // The effect chain lives in the mixer.
+            self.mixer_open = !self.mixer_open;
+        }
         if pressed(Key::V) {
             self.toggle_melody();
         }
         if pressed(Key::L) {
             self.toggle_lyric_mode();
+        }
+        if pressed(Key::D) {
+            self.toggle_second_screen();
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Space)) {
             self.stop();
@@ -437,10 +464,41 @@ impl KaraokeApp {
         self.toast(if off { "ปิดเมโลดี้ร้องนำ (ช่อง 9)".into() } else { "เปิดเมโลดี้ร้องนำ (ช่อง 9)".into() });
     }
 
+    /// Use a font file for the lyrics, or `None` for the bundled Noto Sans
+    /// Thai. A file that is not a usable font is reported and not used.
+    pub fn set_lyric_font(&mut self, ctx: &egui::Context, path: Option<PathBuf>) {
+        match path {
+            Some(p) => match crate::style::load_font(&p) {
+                Ok(data) => {
+                    crate::style::set_fonts(ctx, Some(data));
+                    let name = p.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                    self.toast(format!("ฟอนต์เนื้อร้อง: {name}"));
+                    self.settings.lyric_font = Some(p);
+                }
+                Err(e) => self.toast_error(format!("ใช้ฟอนต์นี้ไม่ได้ — {e}")),
+            },
+            None => {
+                crate::style::set_fonts(ctx, None);
+                self.settings.lyric_font = None;
+            }
+        }
+    }
+
     /// Switch between the two lyric layouts.
     pub fn toggle_lyric_mode(&mut self) {
         self.settings.lyric_mode = self.settings.lyric_mode.other();
         self.toast(format!("เนื้อร้อง: {}", self.settings.lyric_mode.label()));
+    }
+
+    /// Open or close the second screen (lyrics only, for a TV).
+    pub fn toggle_second_screen(&mut self) {
+        let open = !self.settings.second_screen.open;
+        self.settings.second_screen.open = open;
+        self.toast(if open {
+            "เปิดจอที่สอง — ลากไปที่จอทีวีแล้วกด F หรือดับเบิลคลิกให้เต็มจอ".into()
+        } else {
+            "ปิดจอที่สอง".into()
+        });
     }
 
     pub fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
@@ -472,6 +530,7 @@ impl eframe::App for KaraokeApp {
         self.settings.routing = self.synth.routing();
         self.settings.drum_lock = self.synth.drum_lock();
         self.settings.fx = self.synth.mixer().fx;
+        self.settings.inserts = *self.synth.inserts();
         let paths = self.synth.font_paths();
         self.settings.instruments = self
             .synth

@@ -19,6 +19,8 @@ pub enum Pick {
     SoundFonts,
     /// A song folder: an NCN library or a folder of `.sfkar` files.
     SongFolder,
+    /// A font file for the lyrics.
+    LyricFont,
 }
 
 impl Pick {
@@ -26,6 +28,7 @@ impl Pick {
         match self {
             Pick::SoundFonts => "เลือก SoundFont / SFZ",
             Pick::SongFolder => "เลือกโฟลเดอร์เพลง (NCN หรือ .sfkar)",
+            Pick::LyricFont => "เลือกฟอนต์เนื้อร้อง",
         }
     }
 }
@@ -66,6 +69,14 @@ impl Dialogs {
                 let picked = dialog.add_filter("SoundFont / SFZ", &["sf2", "sfz"]).pick_files();
                 std::thread::spawn(move || {
                     let paths = pollster::block_on(picked).unwrap_or_default().iter().map(|f| f.path().to_path_buf()).collect();
+                    let _ = tx.send(paths);
+                    ctx.request_repaint();
+                });
+            }
+            Pick::LyricFont => {
+                let picked = dialog.add_filter("Font", &["ttf", "otf", "ttc"]).pick_file();
+                std::thread::spawn(move || {
+                    let paths = pollster::block_on(picked).map(|f| f.path().to_path_buf()).into_iter().collect();
                     let _ = tx.send(paths);
                     ctx.request_repaint();
                 });

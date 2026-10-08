@@ -4,11 +4,13 @@
 //! context menus (`menu`).
 
 mod bar;
+pub mod effects;
 pub mod menu;
 mod mixer;
 pub mod overlay;
+pub mod screen2;
 pub mod sound;
-mod stage;
+pub mod stage;
 
 use eframe::egui::{self, Align2, CornerRadius, FontId, Frame, Margin, Panel, RichText, Stroke};
 
@@ -31,15 +33,71 @@ pub fn show(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             .show_separator_line(false)
             .show(ui, |ui| mixer::show(app, ui));
     }
-    egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui));
+    egui::CentralPanel::no_frame().show(ui, |ui| stage::show(app, ui, false));
     overlay::show(app, &ctx);
     sound::show(app, &ctx);
+    effects::editor(app, &ctx);
     toasts(app, &ctx);
+    screen2::show(app, &ctx);
     let open = ctx.any_popup_open();
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(POPUP_OPEN), open));
 }
 
 const POPUP_OPEN: &str = "popup-open-last-frame";
+
+/// How far popup `key` has been dragged from its usual place (kept for the
+/// session, not saved).
+pub fn popup_offset(ctx: &egui::Context, key: &str) -> egui::Vec2 {
+    ctx.data(|d| d.get_temp::<egui::Vec2>(egui::Id::new(("popup-offset", key)))).unwrap_or_default()
+}
+
+/// Make `handle` (a popup's header, already allocated with a drag sense)
+/// move popup `key`. Double-click puts it back where it was.
+pub fn drag_popup(ui: &egui::Ui, handle: &egui::Response, key: &str) {
+    let id = egui::Id::new(("popup-offset", key));
+    if handle.double_clicked() {
+        ui.ctx().data_mut(|d| d.remove::<egui::Vec2>(id));
+    } else if handle.dragged() {
+        let delta = handle.drag_delta();
+        ui.ctx().data_mut(|d| *d.get_temp_mut_or_default::<egui::Vec2>(id) += delta);
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if handle.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
+}
+
+/// Keep a dragged popup's header on screen: `shown` is where it was drawn,
+/// `header` how tall its handle is.
+pub fn keep_popup_on_screen(ctx: &egui::Context, key: &str, shown: egui::Rect, header: f32) {
+    let screen = ctx.content_rect();
+    let mut fix = egui::Vec2::ZERO;
+    if shown.top() < screen.top() {
+        fix.y = screen.top() - shown.top();
+    } else if shown.top() + header > screen.bottom() {
+        fix.y = screen.bottom() - header - shown.top();
+    }
+    let margin = 80.0_f32.min(shown.width());
+    if shown.right() < screen.left() + margin {
+        fix.x = screen.left() + margin - shown.right();
+    } else if shown.left() > screen.right() - margin {
+        fix.x = screen.right() - margin - shown.left();
+    }
+    if fix != egui::Vec2::ZERO {
+        ctx.data_mut(|d| *d.get_temp_mut_or_default::<egui::Vec2>(egui::Id::new(("popup-offset", key))) += fix);
+    }
+}
+
+/// Lay `add` out in a box exactly `width` wide. A truncating drop-down cuts
+/// its text at the space it is given, which in a row is the rest of the row;
+/// boxed, it ends with "…" at its own edge instead of pushing the row wider.
+pub fn fixed_width<R>(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let size = egui::vec2(width, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        ui.set_max_width(width);
+        add(ui)
+    })
+    .inner
+}
 
 /// A menu or drop-down is open (or was at the end of the last frame, as
 /// egui closes it on Esc before panels see the key). Esc and clicks then

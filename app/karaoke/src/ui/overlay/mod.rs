@@ -1,5 +1,6 @@
 //! The command overlay: one panel over the stage for everything that is not
-//! singing. Pages: songs, queue, commands, settings and about (files and folders
+//! singing. Songs and queue are tabs of one panel; commands, settings and
+//! about open as popups of their own (files and folders
 //! are picked with the system's own dialogs). List pages share one keyboard model:
 //! type to filter, Up / Down to move, Enter to act, Shift+Enter for the
 //! second action, Tab to switch page, Esc to close.
@@ -25,13 +26,19 @@ pub enum Page {
     About,
 }
 
-const TABS: [(Page, &str); 5] = [
-    (Page::Songs, "เพลง"),
-    (Page::Queue, "คิว"),
-    (Page::Commands, "คำสั่ง"),
-    (Page::Settings, "ตั้งค่า"),
-    (Page::About, "เกี่ยวกับ"),
-];
+/// Songs and queue share one panel with tabs; the other pages are popups
+/// of their own.
+const TABS: [(Page, &str); 2] = [(Page::Songs, "เพลง"), (Page::Queue, "คิว")];
+
+/// Icon, title and width of a page shown as a popup of its own.
+fn popup(page: Page) -> Option<(&'static str, &'static str, f32)> {
+    match page {
+        Page::Commands => Some((icons::COMMAND, "คำสั่งทั้งหมด", 640.0)),
+        Page::Settings => Some((icons::SETTINGS, "ตั้งค่า", 940.0)),
+        Page::About => Some((icons::INFO, "เกี่ยวกับ", 660.0)),
+        Page::Songs | Page::Queue => None,
+    }
+}
 
 pub struct Overlay {
     pub page: Page,
@@ -41,6 +48,8 @@ pub struct Overlay {
     scroll: f32,
     /// Bring the cursor row into view this frame (it moved by keyboard).
     reveal: bool,
+    /// Section shown in the settings popup.
+    settings: settings::Section,
 }
 
 /// What an action leaves behind.
@@ -59,7 +68,7 @@ enum Item {
 
 impl Overlay {
     pub fn new(page: Page) -> Self {
-        Self { page, query: String::new(), cursor: 0, scroll: 0.0, reveal: true }
+        Self { page, query: String::new(), cursor: 0, scroll: 0.0, reveal: true, settings: settings::Section::default() }
     }
 
     fn goto(&mut self, page: Page) {
@@ -129,10 +138,10 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
     if !crate::ui::popup_open(ctx) && key(Modifiers::NONE, Key::Escape) {
         return Outcome::Close;
     }
-    if key(Modifiers::SHIFT, Key::Tab) {
+    if popup(ov.page).is_none() && key(Modifiers::SHIFT, Key::Tab) {
         return Outcome::Goto(cycle(ov.page, -1));
     }
-    if key(Modifiers::NONE, Key::Tab) {
+    if popup(ov.page).is_none() && key(Modifiers::NONE, Key::Tab) {
         return Outcome::Goto(cycle(ov.page, 1));
     }
     if ov.is_list() && !list.is_empty() {
@@ -206,12 +215,18 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
         })
         .inner;
 
-    let width = (screen.width() - 48.0).min(760.0);
+    let width = (screen.width() - 48.0).min(popup(ov.page).map_or(760.0, |p| p.2));
     let max_list = (screen.height() * 0.58).max(160.0);
     let mut result = Outcome::Stay;
-    egui::Area::new(egui::Id::new("overlay"))
+    // Each popup remembers where it was dragged; songs and queue share one.
+    let key = match popup(ov.page) {
+        Some(_) => format!("{:?}", ov.page),
+        None => "songs".to_string(),
+    };
+    let offset = crate::ui::popup_offset(ctx, &key);
+    let shown = egui::Area::new(egui::Id::new("overlay"))
         .order(egui::Order::Foreground)
-        .anchor(Align2::CENTER_TOP, vec2(0.0, (screen.height() * 0.09).max(16.0)))
+        .anchor(Align2::CENTER_TOP, vec2(0.0, (screen.height() * 0.09).max(16.0)) + offset)
         .show(ctx, |ui| {
             Frame::new()
                 .fill(PANEL)
@@ -221,12 +236,21 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                 .show(ui, |ui| {
                     ui.set_width(width);
                     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                    if let Some(page) = tabs(app, ov, ui) {
-                        result = Outcome::Goto(page);
+                    match popup(ov.page) {
+                        Some((icon, title, _)) => {
+                            if title_bar(ui, icon, title, &key) {
+                                result = Outcome::Close;
+                            }
+                        }
+                        None => {
+                            if let Some(page) = tabs(app, ov, ui, &key) {
+                                result = Outcome::Goto(page);
+                            }
+                        }
                     }
                     divider(ui);
                     match ov.page {
-                        Page::Settings => settings::show(app, ui, max_list),
+                        Page::Settings => settings::show(app, ui, &mut ov.settings, max_list),
                         Page::About => about::show(app, ui, max_list),
                         _ => {
                             search_field(ov, ui);
@@ -240,14 +264,17 @@ fn panel(app: &mut KaraokeApp, ov: &mut Overlay, ctx: &egui::Context) -> Outcome
                     footer(ov.page, ui);
                 });
         });
+    crate::ui::keep_popup_on_screen(ctx, &key, shown.response.rect, 48.0);
     if backdrop && matches!(result, Outcome::Stay) {
         return Outcome::Close;
     }
     result
 }
 
+/// The next tab (songs / queue); popups stay where they are.
 fn cycle(page: Page, d: i32) -> Page {
-    let i = TABS.iter().position(|t| t.0 == page).unwrap_or(0) as i32;
+    let Some(i) = TABS.iter().position(|t| t.0 == page) else { return page };
+    let i = i as i32;
     TABS[(i + d).rem_euclid(TABS.len() as i32) as usize].0
 }
 
@@ -256,9 +283,11 @@ fn divider(ui: &mut egui::Ui) {
     ui.painter().rect_filled(rect, 0.0, LINE);
 }
 
-fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui) -> Option<Page> {
+fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui, key: &str) -> Option<Page> {
     let mut go = None;
-    let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+    // The bar is also the handle to drag the panel by.
+    let (bar, handle) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click_and_drag());
+    crate::ui::drag_popup(ui, &handle, key);
     let p = ui.painter();
     let mut x = bar.left() + 18.0;
     let current = ov.page;
@@ -286,6 +315,26 @@ fn tabs(app: &KaraokeApp, ov: &Overlay, ui: &mut egui::Ui) -> Option<Page> {
     go
 }
 
+/// Header of a popup page: icon and title, Esc and a close button.
+/// Returns true when the close button was clicked.
+fn title_bar(ui: &mut egui::Ui, icon: &str, title: &str, key: &str) -> bool {
+    // The title bar is also the handle to drag the popup by.
+    let (bar, handle) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click_and_drag());
+    crate::ui::drag_popup(ui, &handle, key);
+    let p = ui.painter();
+    let y = bar.center().y;
+    p.text(pos2(bar.left() + 20.0, y), Align2::LEFT_CENTER, icon, FontId::proportional(17.0), SUNG);
+    p.text(pos2(bar.left() + 46.0, y), Align2::LEFT_CENTER, title, FontId::proportional(16.0), TEXT);
+    let close = Rect::from_center_size(pos2(bar.right() - 26.0, y), vec2(28.0, 28.0));
+    let resp = ui.interact(close, ui.id().with("popup-close"), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(close, CornerRadius::same(7), RAISED);
+    }
+    ui.painter().text(close.center(), Align2::CENTER_CENTER, icons::REMOVE, FontId::proportional(14.0), if resp.hovered() { TEXT } else { DIM });
+    keycap(ui.painter(), pos2(close.left() - 8.0, y), "Esc");
+    resp.on_hover_text("ปิด (Esc)").clicked()
+}
+
 fn search_field(ov: &mut Overlay, ui: &mut egui::Ui) {
     let hint = match ov.page {
         Page::Songs => "ค้นหาเพลง ชื่อ / ศิลปิน / รหัส",
@@ -309,7 +358,11 @@ fn search_field(ov: &mut Overlay, ui: &mut egui::Ui) {
                     .hint_text(hint)
                     .desired_width(f32::INFINITY),
             );
-            r.request_focus();
+            // Typing always goes to the search field, but not while a
+            // button is held: that would cancel dragging the panel.
+            if !ui.input(|i| i.pointer.any_down()) {
+                r.request_focus();
+            }
         });
     });
 }
@@ -384,7 +437,7 @@ fn list_ui(
 fn empty_text(app: &KaraokeApp, ov: &Overlay) -> String {
     match ov.page {
         Page::Songs if app.library.scanning() => "กำลังสแกนคลังเพลง…".into(),
-        Page::Songs if app.library.db.songs.is_empty() => "ยังไม่มีเพลง — เพิ่มโฟลเดอร์เพลงได้ที่แท็บ ตั้งค่า".into(),
+        Page::Songs if app.library.db.songs.is_empty() => "ยังไม่มีเพลง — เพิ่มโฟลเดอร์เพลงได้ที่ ตั้งค่า (Ctrl+,)".into(),
         Page::Songs => format!("ไม่พบ \"{}\"", ov.query),
         Page::Queue if app.queue.is_empty() => "คิวว่าง — แท็บ เพลง แล้วกด Enter เพื่อจอง".into(),
         _ => "ไม่พบ".into(),
@@ -417,12 +470,13 @@ fn row(app: &KaraokeApp, item: Item, p: &egui::Painter, rect: Rect, selected: bo
     match item {
         Item::Song(i) => {
             let h = app.library.song(i);
-            let playing = app.now.as_ref().is_some_and(|n| n.entry.id == h.id);
+            // By file: an NCN song and its .sfkar copy share a code.
+            let playing = app.now.as_ref().is_some_and(|n| n.entry.location == h.location);
             badge(p, pos2(left + 18.0, y), h.key.as_deref().unwrap_or("–"), playing);
             if selected {
                 right = hint(p, right, y, "ร้องเลย", Some("Shift"), icons::ENTER);
                 right = hint(p, right - 14.0, y, "จองคิว", None, icons::ENTER);
-            } else if let Some(pos) = app.queue.iter().position(|q| q.id == h.id) {
+            } else if let Some(pos) = app.queue.iter().position(|q| q.location == h.location) {
                 right = p.text(pos2(right, y), Align2::RIGHT_CENTER, format!("คิว {}", pos + 1), FontId::proportional(12.0), ACCENT).left();
             }
             let stats = app.library.db.stats(&h.uid);
@@ -432,6 +486,16 @@ fn row(app: &KaraokeApp, item: Item, p: &egui::Painter, rect: Rect, selected: bo
             let mut sub = if h.artist.is_empty() { h.id.clone() } else { format!("{}  ·  {}", h.artist, h.id) };
             if stats.plays > 0 {
                 sub.push_str(&format!("  ·  ร้องแล้ว {} ครั้ง", stats.plays));
+            }
+            // With NCN and .sfkar folders both in the library a code can be
+            // listed twice: say which copy this is.
+            let kinds = &app.library.db.sources;
+            if kinds.iter().any(|s| s.kind != kinds[0].kind) {
+                let (tag, color) = match h.location {
+                    solfege_songdb::Location::Ncn { .. } => ("NCN", ACCENT),
+                    solfege_songdb::Location::Sfkar(_) => ("SFKAR", SUNG),
+                };
+                right = format_tag(p, pos2(right - 10.0, y), tag, color);
             }
             two_lines(p, rect, left + 46.0, right - 12.0, &h.title, &sub);
         }
@@ -453,6 +517,15 @@ fn row(app: &KaraokeApp, item: Item, p: &egui::Painter, rect: Rect, selected: bo
             p.with_clip_rect(clip).text(pos2(left + 36.0, y), Align2::LEFT_CENTER, c.label(app), FontId::proportional(15.0), TEXT);
         }
     }
+}
+
+/// A small coloured label right-aligned at `right_center`; returns its left edge.
+fn format_tag(p: &egui::Painter, right_center: egui::Pos2, tag: &str, color: Color32) -> f32 {
+    let g = p.layout_no_wrap(tag.to_string(), FontId::proportional(10.0), color);
+    let r = Rect::from_min_size(right_center - vec2(g.size().x + 12.0, 9.0), vec2(g.size().x + 12.0, 18.0));
+    p.rect_filled(r, CornerRadius::same(5), color.gamma_multiply(0.15));
+    p.galley(r.center() - g.size() / 2.0, g, color);
+    r.left()
 }
 
 fn two_lines(p: &egui::Painter, rect: Rect, x: f32, right: f32, top: &str, sub: &str) {
@@ -495,10 +568,10 @@ pub fn keycap(p: &egui::Painter, right_center: egui::Pos2, key: &str) -> Rect {
 
 fn footer(page: Page, ui: &mut egui::Ui) {
     let hints: &[(&str, &str)] = match page {
-        Page::Songs => &[("↵", "จองคิว"), ("Shift ↵", "ร้องเลย"), ("Ctrl D", "เพลงโปรด"), ("Tab", "หน้าถัดไป")],
+        Page::Songs => &[("↵", "จองคิว"), ("Shift ↵", "ร้องเลย"), ("Ctrl D", "เพลงโปรด"), ("Tab", "คิว")],
         Page::Queue => &[("↵", "ร้องเลย"), ("Shift ↵", "ขึ้นเป็นเพลงถัดไป"), ("Alt ↑↓", "เลื่อน"), ("Del", "เอาออก")],
-        Page::Commands => &[("↵", "ทำคำสั่ง"), ("Tab", "หน้าถัดไป")],
-        Page::Settings | Page::About => &[("Tab", "หน้าถัดไป"), ("Esc", "ปิด")],
+        Page::Commands => &[("↵", "ทำคำสั่ง"), ("↑↓", "เลือก"), ("Esc", "ปิด")],
+        Page::Settings | Page::About => &[("Esc", "ปิด")],
     };
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
     let p = ui.painter();
@@ -658,8 +731,13 @@ mod tests {
     #[test]
     fn tab_cycles_through_pages() {
         assert_eq!(cycle(Page::Songs, 1), Page::Queue);
-        assert_eq!(cycle(Page::Settings, 1), Page::About);
-        assert_eq!(cycle(Page::About, 1), Page::Songs);
-        assert_eq!(cycle(Page::Songs, -1), Page::About);
+        assert_eq!(cycle(Page::Queue, 1), Page::Songs);
+        assert_eq!(cycle(Page::Songs, -1), Page::Queue);
+        // Commands, settings and about are popups of their own: no tabs.
+        for page in [Page::Commands, Page::Settings, Page::About] {
+            assert_eq!(cycle(page, 1), page);
+            assert!(popup(page).is_some());
+        }
+        assert!(popup(Page::Songs).is_none() && popup(Page::Queue).is_none());
     }
 }

@@ -9,17 +9,21 @@
 //! when opened so searching as you type never touches the disk. A rescan
 //! (which reads every lyric header) runs separately, typically on a
 //! background thread via [`scan`], and its result is merged with
-//! [`SongDb::apply`]. Play history is keyed by song code, so it survives a
-//! rescan, moving a library, or converting NCN songs to `.sfkar`; it has
+//! [`SongDb::apply`]. A code is listed once per source: an NCN library
+//! and its `.sfkar` conversion both show their copy. Play history is keyed
+//! by song code, so it survives a rescan, moving a library, or converting
+//! NCN songs to `.sfkar` (both copies share it); it has
 //! its own table, so it can be saved after every song
 //! ([`SongDb::save_stats`]) without rewriting the catalogue.
 //!
-//! Tables (`PRAGMA user_version` is the schema version, 1):
+//! Tables (`PRAGMA user_version` is the schema version, 2; version 1 keyed
+//! songs by `uid` alone and is migrated on open):
 //!
 //! ```text
 //! sources  position INTEGER PRIMARY KEY, path TEXT UNIQUE, kind TEXT ('ncn' | 'sfkar')
-//! songs    uid TEXT PRIMARY KEY, id, title, artist, key, source -> sources.position,
-//!          format ('ncn' | 'sfkar'), path (MIDI or .sfkar), lyrics, cursor (NCN only)
+//! songs    uid, id, title, artist, key, source -> sources.position,
+//!          format ('ncn' | 'sfkar'), path (MIDI or .sfkar), lyrics, cursor (NCN only),
+//!          PRIMARY KEY (source, uid)
 //! stats    uid TEXT PRIMARY KEY, plays, last_played (unix seconds), favorite (0 / 1)
 //! ```
 //!
@@ -50,7 +54,7 @@ use solfege_ncnparser::{Cursor, Lyrics, MidiInfo, NcnLibrary, NcnSong};
 use solfege_sfkar::KarSong;
 
 /// Schema version (`PRAGMA user_version`).
-const SCHEMA: i64 = 1;
+const SCHEMA: i64 = 2;
 
 const CREATE: &str = "
     CREATE TABLE IF NOT EXISTS sources (
@@ -59,7 +63,7 @@ const CREATE: &str = "
         kind TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS songs (
-        uid TEXT PRIMARY KEY,
+        uid TEXT NOT NULL,
         id TEXT NOT NULL,
         title TEXT NOT NULL,
         artist TEXT NOT NULL,
@@ -68,7 +72,8 @@ const CREATE: &str = "
         format TEXT NOT NULL,
         path TEXT NOT NULL,
         lyrics TEXT,
-        cursor TEXT
+        cursor TEXT,
+        PRIMARY KEY (source, uid)
     );
     CREATE TABLE IF NOT EXISTS stats (
         uid TEXT PRIMARY KEY,
@@ -173,14 +178,17 @@ impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl SourceKind {
-    /// What kind of song folder `path` is, if any.
+    /// What kind of song folder `path` is, if any. A folder with a `Song`
+    /// (or `midi`, ...) sub-folder but no complete NCN song and some
+    /// `.sfkar` files is a `.sfkar` folder.
     pub fn detect(path: &Path) -> Option<Self> {
-        if NcnLibrary::open(path).is_ok() {
+        let ncn = NcnLibrary::open(path).ok();
+        if ncn.as_ref().is_some_and(|lib| lib.entries().any(|e| e.is_complete())) {
             Some(SourceKind::Ncn)
         } else if !sfkar_files(path).is_empty() {
             Some(SourceKind::Sfkar)
         } else {
-            None
+            ncn.map(|_| SourceKind::Ncn)
         }
     }
 }
@@ -212,6 +220,22 @@ fn open_db(path: &Path) -> Result<Connection> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(sql)?;
     if version > SCHEMA {
         return Err(Error::Schema { path: path.to_path_buf(), version });
+    }
+    if version == 1 {
+        // Songs were keyed by code alone: rebuild the table, keeping its rows.
+        conn.execute_batch(
+            "BEGIN;
+             ALTER TABLE songs RENAME TO songs_v1;
+             CREATE TABLE songs (
+                 uid TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, artist TEXT NOT NULL, key TEXT,
+                 source INTEGER NOT NULL, format TEXT NOT NULL, path TEXT NOT NULL, lyrics TEXT, cursor TEXT,
+                 PRIMARY KEY (source, uid)
+             );
+             INSERT OR IGNORE INTO songs SELECT uid, id, title, artist, key, source, format, path, lyrics, cursor FROM songs_v1;
+             DROP TABLE songs_v1;
+             COMMIT;",
+        )
+        .map_err(sql)?;
     }
     conn.execute_batch(CREATE).map_err(sql)?;
     conn.pragma_update(None, "user_version", SCHEMA).map_err(sql)?;
@@ -388,8 +412,11 @@ impl SongDb {
         let kept = self.songs.iter().filter(|s| !scanned.contains(&self.sources[s.source].path)).cloned();
         songs.extend(kept.collect::<Vec<_>>());
         songs.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.uid.cmp(&b.uid)));
+        // One copy of a code per source (a folder may hold the same song
+        // twice); other sources keep theirs, so a library and its
+        // conversion are both listed.
         let mut seen = HashSet::new();
-        songs.retain(|s| seen.insert(s.uid.clone()));
+        songs.retain(|s| seen.insert((s.source, s.uid.clone())));
         self.songs = songs;
         self.reindex();
     }
@@ -442,14 +469,18 @@ impl SongDb {
             };
             hits.push((rank, !st.favorite, u64::MAX - st.last_played, i));
         }
+        // Ties go by code, so copies of a song from different sources sit
+        // together, then by source order.
+        let uid = |h: &(u8, bool, u64, usize)| self.songs[h.3].uid.as_str();
         if q.is_empty() {
-            hits.sort_by_key(|h| (h.0, h.2, h.3));
+            hits.sort_by(|a, b| (a.0, a.2, uid(a), a.3).cmp(&(b.0, b.2, uid(b), b.3)));
         } else {
-            hits.sort_by_key(|h| (h.0, h.1, h.3));
+            hits.sort_by(|a, b| (a.0, a.1, uid(a), a.3).cmp(&(b.0, b.1, uid(b), b.3)));
         }
         hits.into_iter().map(|h| h.3).collect()
     }
 
+    /// The first song with this code (from the first source that has it).
     pub fn find(&self, code: &str) -> Option<usize> {
         let uid = code.to_uppercase();
         self.songs.iter().position(|s| s.uid == uid)
@@ -621,6 +652,7 @@ mod tests {
         let mut db = db();
         db.sources.push(Source { path: "b".into(), kind: SourceKind::Sfkar });
         db.songs.push(song("B1", "บี", "", 1));
+        db.songs.push(song("A9", "ในบี", "", 1));
         // A scan of source "a" only, with a duplicate code.
         let scan = Scan {
             sources: vec![db.sources[0].clone()],
@@ -628,10 +660,12 @@ mod tests {
             errors: vec![],
         };
         db.apply(scan);
-        let ids: Vec<&str> = db.songs.iter().map(|s| s.uid.as_str()).collect();
-        assert_eq!(ids, ["A9", "B1"]);
+        // One A9 per source: "b" keeps its own.
+        let ids: Vec<(&str, usize)> = db.songs.iter().map(|s| (s.uid.as_str(), s.source)).collect();
+        assert_eq!(ids, [("A9", 0), ("A9", 1), ("B1", 1)]);
+        assert_eq!(db.songs[db.find("a9").unwrap()].title, "ใหม่");
         db.remove_source(0);
-        assert_eq!(db.songs.len(), 1);
+        assert_eq!(db.songs.len(), 2);
         assert_eq!(db.songs[0].source, 0);
     }
 
@@ -680,6 +714,45 @@ mod tests {
     }
 
     #[test]
+    fn migrates_schema_1() {
+        let path = std::env::temp_dir().join(format!("songdb-v1-{}.dat", std::process::id()));
+        std::fs::remove_file(&path).ok();
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sources (position INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE, kind TEXT NOT NULL);
+             CREATE TABLE songs (uid TEXT PRIMARY KEY, id TEXT NOT NULL, title TEXT NOT NULL, artist TEXT NOT NULL,
+                 key TEXT, source INTEGER NOT NULL, format TEXT NOT NULL, path TEXT NOT NULL, lyrics TEXT, cursor TEXT);
+             CREATE TABLE stats (uid TEXT PRIMARY KEY, plays INTEGER NOT NULL DEFAULT 0,
+                 last_played INTEGER NOT NULL DEFAULT 0, favorite INTEGER NOT NULL DEFAULT 1);
+             INSERT INTO sources VALUES (0, 'a', 'sfkar'), (1, 'b', 'sfkar');
+             INSERT INTO songs VALUES ('A1', 'a1', 'รักเธอ', '', NULL, 0, 'sfkar', 'a/a1.sfkar', NULL, NULL);
+             INSERT INTO stats VALUES ('A1', 3, 9, 1);
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+        drop(conn);
+        let mut db = SongDb::load(&path).unwrap();
+        assert_eq!(db.songs.len(), 1, "songs kept");
+        assert_eq!(db.stats("A1").plays, 3);
+        // The same code in a second source now fits.
+        db.songs.push(song("A1", "รักเธอ", "", 1));
+        db.save(&path).unwrap();
+        assert_eq!(SongDb::load(&path).unwrap().songs.len(), 2);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn detects_sfkar_folders_with_ncn_names() {
+        // A "Songs" sub-folder holding .sfkar files is not an NCN library.
+        let dir = std::env::temp_dir().join(format!("songdb-detect-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Songs")).unwrap();
+        assert_eq!(SourceKind::detect(&dir), Some(SourceKind::Ncn), "empty library layout");
+        std::fs::write(dir.join("Songs").join("x.sfkar"), b"").unwrap();
+        assert_eq!(SourceKind::detect(&dir), Some(SourceKind::Sfkar));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn imports_the_old_json_catalogue() {
         let dir = std::env::temp_dir().join(format!("songdb-json-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -707,7 +780,7 @@ mod tests {
             return;
         };
         // Convert a few songs into a .sfkar folder; they share codes with
-        // the NCN library, so only the first source's copies are listed.
+        // the NCN library and both copies are listed.
         let dir = std::env::temp_dir().join(format!("songdb-sfkar-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         for id in ["Z2608001", "Z2608002"] {
@@ -720,7 +793,13 @@ mod tests {
         let scan = scan(&db.sources);
         assert!(scan.errors.is_empty(), "{:?}", scan.errors);
         db.apply(scan);
-        assert_eq!(db.songs.len(), 139);
+        assert_eq!(db.songs.len(), 139 + 2);
+        assert_eq!(db.songs.iter().filter(|s| s.source == 0).count(), 2);
+        // Both copies of a code come up together.
+        let hits = db.search("z2608001");
+        assert_eq!(hits.len(), 2);
+        let all = db.search("");
+        assert_eq!(db.songs[all[0]].uid, db.songs[all[1]].uid);
         let i = db.find("z2608001").unwrap();
         assert!(matches!(db.songs[i].location, Location::Sfkar(_)));
         let j = db.find("Z2608003").unwrap();

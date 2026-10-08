@@ -37,9 +37,11 @@ pub enum Cmd {
     LyricMode,
     Clock,
     About,
+    Effects,
+    SecondScreen,
 }
 
-pub const ALL: [Cmd; 26] = [
+pub const ALL: [Cmd; 28] = [
     Cmd::PlayPause,
     Cmd::Restart,
     Cmd::Stop,
@@ -51,6 +53,7 @@ pub const ALL: [Cmd; 26] = [
     Cmd::Slower,
     Cmd::SpeedReset,
     Cmd::Fullscreen,
+    Cmd::SecondScreen,
     Cmd::Songs,
     Cmd::Queue,
     Cmd::ClearQueue,
@@ -66,6 +69,7 @@ pub const ALL: [Cmd; 26] = [
     Cmd::LyricMode,
     Cmd::Clock,
     Cmd::About,
+    Cmd::Effects,
 ];
 
 impl Cmd {
@@ -79,6 +83,8 @@ impl Cmd {
             Cmd::KeyUp | Cmd::KeyDown | Cmd::KeyReset => icons::KEY,
             Cmd::Faster | Cmd::Slower | Cmd::SpeedReset => icons::METRONOME,
             Cmd::Fullscreen => icons::FULLSCREEN,
+            Cmd::SecondScreen if app.settings.second_screen.open => icons::SECOND_SCREEN_OFF,
+            Cmd::SecondScreen => icons::SECOND_SCREEN,
             Cmd::Songs => icons::SEARCH,
             Cmd::Queue => icons::QUEUE,
             Cmd::ClearQueue => icons::TRASH,
@@ -95,6 +101,7 @@ impl Cmd {
             },
             Cmd::Clock => icons::CLOCK,
             Cmd::About => icons::INFO,
+            Cmd::Effects => icons::EFFECTS,
         }
     }
 
@@ -125,6 +132,8 @@ impl Cmd {
             Cmd::SpeedReset => "ความเร็วปกติ (100%)".into(),
             Cmd::Fullscreen if app.fullscreen => "ออกจากเต็มจอ".into(),
             Cmd::Fullscreen => "เต็มจอ".into(),
+            Cmd::SecondScreen if app.settings.second_screen.open => "ปิดจอที่สอง".into(),
+            Cmd::SecondScreen => "เปิดจอที่สอง (เนื้อร้องอย่างเดียว สำหรับทีวี / โปรเจกเตอร์)".into(),
             Cmd::Songs => "ค้นหาเพลง".into(),
             Cmd::Queue => format!("ดูคิวเพลง ({})", app.queue.len()),
             Cmd::ClearQueue => "ล้างคิว".into(),
@@ -147,6 +156,7 @@ impl Cmd {
             Cmd::Clock if app.settings.show_clock => "ซ่อนนาฬิกา".into(),
             Cmd::Clock => "แสดงนาฬิกา".into(),
             Cmd::About => "เกี่ยวกับ Solfege Karaoke".into(),
+            Cmd::Effects => "เอฟเฟกต์รวม 10 ช่องในมิกเซอร์ (EQ, คอมเพรสเซอร์, ดีเลย์, รีเวิร์บ…)".into(),
         }
     }
 
@@ -160,6 +170,7 @@ impl Cmd {
             Cmd::KeyUp | Cmd::KeyDown | Cmd::KeyReset => "key transpose pitch",
             Cmd::Faster | Cmd::Slower | Cmd::SpeedReset => "tempo speed bpm",
             Cmd::Fullscreen => "fullscreen stage",
+            Cmd::SecondScreen => "second screen dual display monitor tv projector",
             Cmd::Songs => "song search find",
             Cmd::Queue | Cmd::ClearQueue => "queue",
             Cmd::Mixer | Cmd::ResetMixer => "mixer tracks channels mute solo volume",
@@ -171,6 +182,7 @@ impl Cmd {
             Cmd::LyricMode => "lyrics mode scroll classic wipe",
             Cmd::Clock => "clock time",
             Cmd::About => "about version license credits",
+            Cmd::Effects => "effects fx insert eq compressor limiter delay reverb chorus drive filter width",
         }
     }
 
@@ -184,12 +196,14 @@ impl Cmd {
             Cmd::Faster => &["."],
             Cmd::Slower => &[","],
             Cmd::Fullscreen => &["F"],
+            Cmd::SecondScreen => &["D"],
             Cmd::Songs => &["/"],
             Cmd::Queue => &["Q"],
             Cmd::Mixer => &["M"],
             Cmd::Sounds => &["S"],
             Cmd::Melody => &["V"],
             Cmd::LyricMode => &["L"],
+            Cmd::Effects => &["E"],
             Cmd::Settings => &["Ctrl", ","],
             _ => &[],
         }
@@ -269,6 +283,10 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
             app.set_fullscreen(ctx, !app.fullscreen);
             Outcome::Close
         }
+        Cmd::SecondScreen => {
+            app.toggle_second_screen();
+            Outcome::Close
+        }
         Cmd::Songs => Outcome::Goto(Page::Songs),
         Cmd::Queue => Outcome::Goto(Page::Queue),
         Cmd::ClearQueue => {
@@ -319,6 +337,10 @@ pub fn run(app: &mut KaraokeApp, cmd: Cmd, ctx: &egui::Context) -> Outcome {
             Outcome::Close
         }
         Cmd::About => Outcome::Goto(Page::About),
+        Cmd::Effects => {
+            app.mixer_open = true;
+            Outcome::Close
+        }
         Cmd::Sounds => {
             app.sound = Some(crate::ui::sound::SoundPanel::new());
             Outcome::Close

@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use solfege_synth::engine::inserts::{INSERT_SLOTS, InsertParams};
 use solfege_synth::engine::mixer::FxParams;
 
 pub const FILE_NAME: &str = "config.json";
@@ -37,6 +38,8 @@ pub struct Settings {
     pub pieces: Vec<SavedPiece>,
     /// Reverb and chorus (return levels and their parameters).
     pub fx: FxParams,
+    /// Master effect slots, in processing order (`null` = empty).
+    pub inserts: [Option<InsertParams>; INSERT_SLOTS],
     pub device: Option<String>,
     pub volume: f32,
     /// Lyric size relative to the stage height.
@@ -49,6 +52,69 @@ pub struct Settings {
     pub melody_off: bool,
     /// Show the time of day on the stage.
     pub show_clock: bool,
+    /// Colours of the lyrics and their wipe.
+    pub lyric_colors: LyricColors,
+    /// Thickness of the rim around the lyric letters, relative to the
+    /// default (0 = no rim).
+    pub lyric_outline: f32,
+    /// Font file for the lyrics (`.ttf`, `.otf`, `.ttc`); `None` = Noto Sans Thai.
+    pub lyric_font: Option<PathBuf>,
+    /// The second screen (lyrics only, for a TV or projector).
+    pub second_screen: SecondScreen,
+}
+
+/// A second window that shows only the lyric stage. It opens where it was
+/// last, so once dragged onto the TV it comes back there.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecondScreen {
+    pub open: bool,
+    pub fullscreen: bool,
+    /// Outer top-left of the window, in points (`None` = let the system place it).
+    pub pos: Option<[f32; 2]>,
+    /// Inner size, in points.
+    pub size: [f32; 2],
+    /// Display for full screen, in the system's order (`None` = the one
+    /// the window is on).
+    pub monitor: Option<usize>,
+}
+
+impl Default for SecondScreen {
+    fn default() -> Self {
+        Self { open: false, fullscreen: false, pos: None, size: [1280.0, 720.0], monitor: None }
+    }
+}
+
+/// Colours of the lyric stage, as RGB.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LyricColors {
+    /// Text not sung yet.
+    pub unsung: [u8; 3],
+    /// Text already sung.
+    pub sung: [u8; 3],
+    /// The syllable being sung (the moving edge of the wipe) and the bead.
+    pub wipe: [u8; 3],
+    /// Rim around the letters.
+    pub outline: [u8; 3],
+}
+
+impl Default for LyricColors {
+    fn default() -> Self {
+        Self::PRESETS[0].1
+    }
+}
+
+impl LyricColors {
+    /// Ready-made colour sets.
+    pub const PRESETS: [(&'static str, LyricColors); 6] = [
+        ("ส้มทอง", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0xff, 0xb0, 0x3b], wipe: [0xff, 0x6a, 0x3d], outline: [0x15, 0x15, 0x15] }),
+        ("ฟ้า", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0x4f, 0xc3, 0xf7], wipe: [0x29, 0x79, 0xff], outline: [0x0b, 0x12, 0x20] }),
+        ("ชมพู", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0xff, 0x7e, 0xb6], wipe: [0xe0, 0x40, 0xfb], outline: [0x1a, 0x0b, 0x16] }),
+        ("เขียว", LyricColors { unsung: [0xf4, 0xf4, 0xf4], sung: [0x69, 0xf0, 0xae], wipe: [0x00, 0xc8, 0x53], outline: [0x08, 0x18, 0x10] }),
+        ("แดงขาว", LyricColors { unsung: [0xff, 0xff, 0xff], sung: [0xff, 0x40, 0x40], wipe: [0xff, 0xd0, 0x40], outline: [0x00, 0x00, 0x00] }),
+        ("น้ำเงินเหลือง", LyricColors { unsung: [0xff, 0xf1, 0x76], sung: [0x40, 0x80, 0xff], wipe: [0x80, 0xd8, 0xff], outline: [0x00, 0x00, 0x30] }),
+    ];
 }
 
 /// How the lyrics are laid out on the stage.
@@ -90,6 +156,7 @@ impl Default for Settings {
             instruments: Vec::new(),
             pieces: Vec::new(),
             fx: FxParams::default(),
+            inserts: [None; INSERT_SLOTS],
             device: None,
             volume: 0.8,
             lyric_scale: 1.0,
@@ -97,6 +164,10 @@ impl Default for Settings {
             lyric_mode: LyricMode::Scroll,
             melody_off: false,
             show_clock: true,
+            lyric_colors: LyricColors::default(),
+            lyric_outline: 1.0,
+            lyric_font: None,
+            second_screen: SecondScreen::default(),
         }
     }
 }
@@ -115,7 +186,7 @@ pub struct SavedInstrument {
 /// A kit piece's own kit, saved by font file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SavedPiece {
-    /// 0 kick, 1 snare, 2 hi-hat, 3 toms, 4 cymbals, 5 percussion.
+    /// 0 kick, 1 snare, 2 hi-hat, 3 toms, 4 cymbals, 5 percussion, 6 cowbell.
     pub piece: usize,
     pub font: PathBuf,
     pub bank: u16,
@@ -211,6 +282,10 @@ mod tests {
         s.soundfonts = vec![PathBuf::from("/fonts/gm.sf2")];
         s.drum_lock = Some((128, 16));
         s.fx.reverb_room = 0.9;
+        s.lyric_colors = LyricColors::PRESETS[2].1;
+        s.lyric_outline = 2.5;
+        s.second_screen = SecondScreen { open: true, fullscreen: true, pos: Some([1920.0, 0.0]), monitor: Some(1), ..SecondScreen::default() };
+        s.lyric_font = Some(PathBuf::from("/fonts/lyrics.ttf"));
         file.save(&s).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"soundfonts\": [\n"), "pretty JSON:\n{text}");
@@ -224,6 +299,10 @@ mod tests {
         assert!(again.existed(), "the file is there now");
         assert_eq!(back.to_json(), s.to_json());
         assert_eq!(back.fx.reverb_room, 0.9);
+        assert!(back.lyric_colors == LyricColors::PRESETS[2].1);
+        assert_eq!(back.lyric_font, s.lyric_font);
+        assert_eq!(back.lyric_outline, 2.5);
+        assert_eq!(back.second_screen, s.second_screen);
 
         // Hand-edited with fields missing: defaults fill in.
         std::fs::write(&path, r#"{ "volume": 0.3 }"#).unwrap();
@@ -231,6 +310,8 @@ mod tests {
         assert!(err.is_none());
         assert_eq!(partial.volume, 0.3);
         assert_eq!(partial.lyric_scale, 1.0);
+        assert!(partial.lyric_colors == LyricColors::default());
+        assert_eq!(partial.lyric_outline, 1.0);
 
         // Broken: reported, defaults used, the file kept aside.
         std::fs::write(&path, "{ not json").unwrap();
