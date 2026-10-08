@@ -250,3 +250,29 @@ fn ui_renders_player() {
     assert!(text.contains("0:00.7 / 0:02.0"));
     assert!(text.contains("10×"));
 }
+
+#[test]
+fn external_output_keeps_the_rack_quiet_and_forwards_sysex() {
+    let mut r = rig(SlotParams::default(), sine_inst());
+    // GM System On (SMF SysEx: F0 <len> data... F7), then a note.
+    let t = track(&[(0, &[0xF0, 0x05, 0x7E, 0x7F, 0x09, 0x01, 0xF7]), (96, &[0x90, 60, 100]), (864, &[0x80, 60, 0])]);
+    let song = Arc::new(smf::parse(&smf_file(0, 480, &[t]), "ext").unwrap());
+    r.shared.forward_player.store(true, Ordering::Relaxed);
+    r.shared.player_to_rack.store(false, Ordering::Relaxed);
+    r.tx.send(Command::LoadSong(song.clone())).unwrap();
+    r.tx.send(Command::Play).unwrap();
+    let out = r.run(9600);
+    assert!(out.iter().all(|x| *x == 0.0), "the rack stays silent");
+    assert!((r.time() - 0.2).abs() < 1e-9, "the player keeps time");
+    let sent: Vec<_> = r.shared.out_rx.try_iter().collect();
+    assert!(sent.contains(&([0x90, 60, 100], 3)), "{sent:?}");
+    assert!(!sent.iter().any(|(m, _)| m[0] == 0xF0), "SysEx only when asked");
+
+    // With forward_system the decoded reset comes through too.
+    r.shared.forward_system.store(true, Ordering::Relaxed);
+    r.tx.send(Command::Stop).unwrap();
+    r.tx.send(Command::Play).unwrap();
+    r.run(4800);
+    let sent: Vec<_> = r.shared.out_rx.try_iter().collect();
+    assert!(sent.contains(&([0xF0, smf::SYS_RESET, 0], 3)), "{sent:?}");
+}

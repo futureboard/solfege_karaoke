@@ -73,6 +73,8 @@ pub struct KaraokeApp {
     pub scrub: Option<f64>,
     pending_song: Option<String>,
     clock: f64,
+    /// MIDI devices found by the last scan (`None` = not scanned yet).
+    pub midi_ports: Option<crate::midi::MidiPorts>,
     /// The second screen's window as it was opened (see `ui::screen2`).
     pub second_window: Option<egui::ViewportBuilder>,
 }
@@ -117,6 +119,7 @@ impl KaraokeApp {
             scrub: None,
             pending_song: launch.song,
             second_window: None,
+            midi_ports: None,
             clock: 0.0,
         };
         if let Some(path) = app.settings.lyric_font.clone() {
@@ -135,6 +138,12 @@ impl KaraokeApp {
         app.synth.start_output(app.settings.device.as_deref());
         if let Some(e) = app.synth.output_error.clone() {
             app.toast_error(format!("ไม่มีเสียงออก: {e}"));
+        }
+        if app.settings.midi_out.is_some() {
+            app.set_midi_output(app.settings.midi_out.clone());
+        }
+        if app.settings.midi_in.is_some() {
+            app.set_midi_input(app.settings.midi_in.clone(), app.settings.midi_in_channel);
         }
         // The saved rack, else an older single font, else (first run only)
         // one found on disk. A rack emptied on purpose stays empty.
@@ -288,6 +297,40 @@ impl KaraokeApp {
                 self.toast(format!("เพิ่มคลังเพลง {kind}: {}", root.display()));
             }
             Err(e) => self.toast_error(e),
+        }
+    }
+
+    /// Play the songs on MIDI device `name`, or on the Solfege Engine
+    /// (`None`). A device that cannot be opened is reported and the engine
+    /// plays.
+    pub fn set_midi_output(&mut self, name: Option<String>) {
+        match self.synth.set_midi_output(name.as_deref()) {
+            Ok(()) => {
+                self.toast(format!("MIDI Output: {}", name.as_deref().unwrap_or(crate::midi::ENGINE)));
+                self.settings.midi_out = name;
+            }
+            Err(e) => {
+                self.settings.midi_out = None;
+                self.toast_error(format!("เปิด MIDI Output ไม่ได้ ใช้ {} แทน — {e}", crate::midi::ENGINE));
+            }
+        }
+    }
+
+    /// Let MIDI keyboard `name` play along (`None` = none), moved to
+    /// `channel` (0-based) or on its own channels.
+    pub fn set_midi_input(&mut self, name: Option<String>, channel: Option<u8>) {
+        self.settings.midi_in_channel = channel;
+        match self.synth.set_midi_input(name.as_deref(), channel) {
+            Ok(()) => {
+                if self.settings.midi_in != name {
+                    self.toast(name.as_ref().map_or_else(|| "ปิด MIDI Input".into(), |n| format!("MIDI Input: {n}")));
+                }
+                self.settings.midi_in = name;
+            }
+            Err(e) => {
+                self.settings.midi_in = None;
+                self.toast_error(format!("เปิด MIDI Input ไม่ได้ — {e}"));
+            }
         }
     }
 

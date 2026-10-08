@@ -11,6 +11,7 @@ mod dialog;
 mod gm;
 mod icons;
 mod library;
+mod midi;
 mod music;
 mod style;
 mod synth;

@@ -5,6 +5,10 @@
 //! part except the drums. A channel can also have one sound pinned,
 //! overriding the song's program changes.
 //!
+//! The song can also play on an external MIDI device instead (see
+//! `crate::midi`): the engine's player still keeps time, its rack stays
+//! quiet.
+//!
 //! The engine normally runs inside the audio callback. Without a usable
 //! output device it runs on a paced thread instead, so lyrics still follow
 //! the song (silently) and the rest of the app behaves the same.
@@ -23,6 +27,8 @@ use solfege_synth::engine::mixer::{DRUM_STRIP_BASE, FxParams, GM_GROUP_NAMES, No
 use solfege_synth::engine::{Command, Engine, Garbage, NO_PRESET, PlayState, Shared, Slot, SlotParams, load_peak};
 use solfege_synth::instrument::{self, Instrument, db_to_gain};
 use solfege_synth::smf;
+
+use crate::midi::{InputTarget, MidiIn, MidiOut, OutState};
 
 pub const KEY_RANGE: i32 = 12;
 /// Fonts in the rack (two engine slots each at most).
@@ -183,6 +189,13 @@ pub struct Synth {
     inserts: [Option<InsertParams>; INSERT_SLOTS],
     /// Sample rate of the running engine (effects are built for it).
     sample_rate: f32,
+    /// MIDI device playing the song instead of the engine.
+    midi_out: Option<MidiOut>,
+    /// Key and blocked channels for the MIDI device.
+    out_state: Arc<OutState>,
+    /// MIDI keyboard playing along, and the channel it is moved to.
+    midi_in: Option<MidiIn>,
+    midi_in_channel: Option<u8>,
 }
 
 impl Synth {
@@ -215,6 +228,10 @@ impl Synth {
             melody_off: false,
             inserts: [None; INSERT_SLOTS],
             sample_rate: 48_000.0,
+            midi_out: None,
+            out_state: Arc::new(OutState::default()),
+            midi_in: None,
+            midi_in_channel: None,
         }
     }
 
@@ -696,6 +713,9 @@ impl Synth {
     /// Load a backing track from Standard MIDI File bytes.
     pub fn load_midi(&mut self, bytes: &[u8], name: &str) -> Result<()> {
         let song = Arc::new(smf::parse(bytes, name)?);
+        if let Some(out) = &self.midi_out {
+            out.reset();
+        }
         self.send(Command::LoadSong(song.clone()));
         self.send(Command::SetSpeed(self.speed));
         self.song = Some(song);
@@ -905,12 +925,87 @@ impl Synth {
         Some(self.slots_of(ch).find(overridden).unwrap_or(home))
     }
 
+    // -------------------------------------------------------------- MIDI
+
+    /// Play the song on MIDI output `name`, or on the Solfege Engine
+    /// (`None`). On an error the engine plays.
+    pub fn set_midi_output(&mut self, name: Option<&str>) -> Result<(), String> {
+        // Dropping the old device silences it.
+        self.midi_out = None;
+        let result = match name {
+            Some(n) => MidiOut::open(n, self.shared.out_rx.clone(), self.out_state.clone()).map(|out| {
+                out.reset();
+                self.midi_out = Some(out);
+            }),
+            None => Ok(()),
+        };
+        let external = self.midi_out.is_some();
+        self.shared.forward_system.store(external, Ordering::Relaxed);
+        self.shared.forward_player.store(external, Ordering::Relaxed);
+        self.shared.player_to_rack.store(!external, Ordering::Relaxed);
+        self.sync_midi();
+        // The keyboard plays where the song plays.
+        if let Some(name) = self.midi_in.as_ref().map(|m| m.name.clone()) {
+            let _ = self.set_midi_input(Some(&name), self.midi_in_channel);
+        }
+        // Both ends pick the song up where it is (programs, controllers);
+        // the side that stopped playing lets its notes go.
+        if matches!(self.state, PlayState::Playing | PlayState::Paused) {
+            self.send(Command::Seek(self.time()));
+        }
+        result
+    }
+
+    /// The MIDI device playing the song (`None` = the Solfege Engine).
+    pub fn midi_output(&self) -> Option<&str> {
+        self.midi_out.as_ref().map(|m| m.name.as_str())
+    }
+
+    /// Let MIDI input `name` play along (`None` = no input), on its own
+    /// channels or all moved to `channel` (0-based).
+    pub fn set_midi_input(&mut self, name: Option<&str>, channel: Option<u8>) -> Result<(), String> {
+        self.midi_in = None;
+        self.midi_in_channel = channel;
+        let Some(name) = name else { return Ok(()) };
+        let target = if self.midi_out.is_some() { InputTarget::Device } else { InputTarget::Engine(self.tx.clone()) };
+        self.midi_in = Some(MidiIn::open(name, target, self.midi_out.as_ref(), channel)?);
+        Ok(())
+    }
+
+    pub fn midi_input(&self) -> Option<&str> {
+        self.midi_in.as_ref().map(|m| m.name.as_str())
+    }
+
+    /// What the MIDI device has to apply itself: the key, and the channels
+    /// that are muted, not soloed or the switched-off guide melody.
+    fn sync_midi(&self) {
+        if self.midi_out.is_none() {
+            return;
+        }
+        self.out_state.key.store(self.key, Ordering::Relaxed);
+        self.out_state.blocked.store(self.blocked_channels() as u32, Ordering::Relaxed);
+        // The VOL slider as GM Master Volume (a device cannot go above full).
+        let gain = db_to_gain(volume_db(self.volume)).min(1.0);
+        self.out_state.volume.store((gain * 16383.0).round() as u32, Ordering::Relaxed);
+    }
+
+    /// Bit per channel a MIDI device must not play: muted, not soloed while
+    /// another channel is, or the switched-off guide melody.
+    fn blocked_channels(&self) -> u16 {
+        let strips = &self.mixer.channels;
+        let any_solo = strips.iter().any(|s| s.solo);
+        (0..16)
+            .filter(|&ch| strips[ch].mute || (any_solo && !strips[ch].solo) || (ch == MELODY_CH && self.melody_off))
+            .fold(0u16, |m, ch| m | (1 << ch))
+    }
+
     // -------------------------------------------------------------- poll
 
     /// Once per frame: free engine garbage, finish background loads and
     /// notice the end of the song.
     pub fn poll(&mut self) -> Vec<SynthEvent> {
         while self.garbage_rx.try_recv().is_ok() {}
+        self.sync_midi();
         let mut events = Vec::new();
         let mut loaded = false;
         for f in &mut self.fonts {
@@ -991,6 +1086,33 @@ mod tests {
         assert!(volume_db(0.8).abs() < 1e-4);
         assert!(volume_db(0.0) <= -100.0);
         assert!(volume_db(1.0) > 3.0 && volume_db(1.0) < 4.0);
+    }
+
+    #[test]
+    fn midi_device_follows_mute_solo_and_melody() {
+        let mut s = Synth::new();
+        assert_eq!(s.blocked_channels(), 0);
+        s.set_melody_off(true);
+        assert_eq!(s.blocked_channels(), 1 << MELODY_CH);
+        let id = StripId::Channel(2);
+        s.set_strip(id, StripParams { mute: true, ..s.strip(id) });
+        assert_eq!(s.blocked_channels(), 1 << MELODY_CH | 1 << 2);
+        // Solo one channel: every other channel is blocked.
+        let solo = StripId::Channel(0);
+        s.set_strip(solo, StripParams { solo: true, ..s.strip(solo) });
+        assert_eq!(s.blocked_channels(), !1u16);
+    }
+
+    #[test]
+    fn missing_midi_device_leaves_the_engine_playing() {
+        let mut s = Synth::new();
+        assert!(s.set_midi_output(Some("no such device")).is_err());
+        assert_eq!(s.midi_output(), None);
+        assert!(s.shared.player_to_rack.load(Ordering::Relaxed));
+        assert!(!s.shared.forward_player.load(Ordering::Relaxed));
+        assert!(s.set_midi_input(Some("no such keyboard"), Some(15)).is_err());
+        assert_eq!(s.midi_input(), None);
+        assert!(s.set_midi_output(None).is_ok());
     }
 
     #[test]

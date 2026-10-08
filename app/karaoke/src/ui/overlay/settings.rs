@@ -267,7 +267,7 @@ fn library(app: &mut KaraokeApp, ui: &mut egui::Ui) {
 // --------------------------------------------------------------------- audio
 
 fn audio(app: &mut KaraokeApp, ui: &mut egui::Ui) {
-    title(ui, "เสียงออก", "อุปกรณ์ที่ใช้เล่นเสียง ความดังรวม และเมโลดี้นำร้อง");
+    title(ui, "เสียงออก", "อุปกรณ์ที่ใช้เล่นเสียง MIDI ความดังรวม และเมโลดี้นำร้อง");
     if app.devices.is_empty() {
         app.devices = solfege_synth::audio::output_devices();
     }
@@ -306,6 +306,7 @@ fn audio(app: &mut KaraokeApp, ui: &mut egui::Ui) {
             ui.add(egui::Label::new(RichText::new(text).size(12.0).color(if dot == DANGER { DANGER } else { DIM })).truncate());
         });
     });
+    midi(app, ui);
     card(ui, |ui| {
         row(ui, "ความดังเพลง", "ระดับเสียงดนตรีทั้งหมด (เหมือนแถบ VOL ด้านล่าง)", |ui| {
             let mut v = app.synth.volume();
@@ -328,6 +329,96 @@ fn audio(app: &mut KaraokeApp, ui: &mut egui::Ui) {
                 app.open_sound();
             }
         });
+    });
+}
+
+/// MIDI output (the Solfege Engine or a device) and a keyboard to play along.
+fn midi(app: &mut KaraokeApp, ui: &mut egui::Ui) {
+    use crate::midi::{ENGINE, MidiPorts};
+    let ports = app.midi_ports.get_or_insert_with(MidiPorts::scan);
+    let outputs = ports.outputs.clone().unwrap_or_default();
+    let inputs = ports.inputs.clone().unwrap_or_default();
+    let problem = match (&ports.outputs, &ports.inputs) {
+        (Err(e), _) | (_, Err(e)) => Some(format!("ระบบ MIDI ใช้ไม่ได้ — {e}")),
+        (Ok(o), Ok(i)) if o.is_empty() && i.is_empty() => Some("ไม่พบอุปกรณ์ MIDI — เสียบแล้วกดค้นหาใหม่".to_string()),
+        _ => None,
+    };
+    card(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("{}  MIDI", icons::KEY)).size(14.0).strong().color(TEXT));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(icons::REFRESH).on_hover_text("ค้นหาอุปกรณ์ MIDI ใหม่").clicked() {
+                    app.midi_ports = Some(MidiPorts::scan());
+                }
+            });
+        });
+        ui.label(
+            RichText::new("คีย์ ความดัง (VOL) ปิดเสียง / โซโล และเมโลดี้ร้องนำใช้ได้กับทุกทาง ส่วน SoundFont เฟดเดอร์ และเอฟเฟกต์ใช้กับ Solfege Engine เท่านั้น")
+                .size(12.0)
+                .color(DIM),
+        );
+        ui.add_space(2.0);
+        row(ui, "MIDI Output", "เพลงเล่นออกทาง: เสียงในโปรแกรม หรือคีย์บอร์ด / ซาวด์โมดูลที่ต่อไว้", |ui| {
+            let current = app.synth.midi_output().map(str::to_string);
+            let mut choice = current.clone();
+            crate::ui::fixed_width(ui, 260.0, |ui| {
+                egui::ComboBox::from_id_salt("midi-out")
+                    .truncate()
+                    .selected_text(current.as_deref().unwrap_or(ENGINE))
+                    .width(260.0)
+                    .show_ui(ui, |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                        ui.selectable_value(&mut choice, None, format!("{}  {ENGINE}", icons::VOLUME));
+                        for name in &outputs {
+                            ui.selectable_value(&mut choice, Some(name.clone()), format!("{}  {name}", icons::KEY));
+                        }
+                    })
+            });
+            if choice != current {
+                app.set_midi_output(choice);
+            }
+        });
+        ui.separator();
+        row(ui, "MIDI Input", "คีย์บอร์ดที่เล่นตามเพลง เสียงออกทางเดียวกับเพลง", |ui| {
+            let channel = app.settings.midi_in_channel;
+            let mut ch_choice = channel;
+            let ch_name = |c: Option<u8>| c.map_or("ช่องเดิม".to_string(), |c| format!("ช่อง {}", c + 1));
+            crate::ui::fixed_width(ui, 96.0, |ui| {
+                egui::ComboBox::from_id_salt("midi-in-ch").selected_text(ch_name(channel)).width(96.0).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut ch_choice, None, ch_name(None));
+                    for c in 0..16u8 {
+                        ui.selectable_value(&mut ch_choice, Some(c), ch_name(Some(c)));
+                    }
+                })
+            })
+            .response
+            .on_hover_text("ย้ายทุกโน้ตจากคีย์บอร์ดไปช่องเดียว เช่น ช่อง 16 ที่เพลงมักไม่ใช้");
+            let current = app.synth.midi_input().map(str::to_string);
+            let mut choice = current.clone();
+            crate::ui::fixed_width(ui, 220.0, |ui| {
+                egui::ComboBox::from_id_salt("midi-in")
+                    .truncate()
+                    .selected_text(current.as_deref().unwrap_or("ไม่ใช้"))
+                    .width(220.0)
+                    .show_ui(ui, |ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                        ui.selectable_value(&mut choice, None, "ไม่ใช้");
+                        for name in &inputs {
+                            ui.selectable_value(&mut choice, Some(name.clone()), name);
+                        }
+                    })
+            });
+            if choice != current || ch_choice != channel {
+                app.set_midi_input(choice, ch_choice);
+            }
+        });
+        if let Some(text) = problem {
+            ui.horizontal(|ui| {
+                let (r, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
+                ui.painter().circle_filled(r.center(), 4.0, DIM);
+                ui.add(egui::Label::new(RichText::new(text).size(12.0).color(DIM)).truncate());
+            });
+        }
     });
 }
 

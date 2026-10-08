@@ -1975,6 +1975,7 @@ dependencies = [
  "chrono",
  "crossbeam-channel",
  "eframe",
+ "midir",
  "pollster 0.4.0",
  "rfd",
  "serde",

@@ -285,6 +285,12 @@ pub struct Shared {
     pub out_pairs: AtomicU32,
     /// Forward player events to the MIDI output (drained by a MIDI thread).
     pub forward_player: AtomicBool,
+    /// Also forward decoded SysEx (`[0xF0, SYS_*, arg]`, see `smf`); the
+    /// reader must translate them back into real SysEx.
+    pub forward_system: AtomicBool,
+    /// Player events play on the rack. Off while an external MIDI device
+    /// plays the song instead: the player keeps time, the rack stays quiet.
+    pub player_to_rack: AtomicBool,
     pub out_tx: Sender<([u8; 3], u8)>,
     pub out_rx: Receiver<([u8; 3], u8)>,
 }
@@ -307,6 +313,8 @@ impl Shared {
             fx_peak: std::array::from_fn(|_| AtomicU32::new(0)),
             out_pairs: AtomicU32::new(1),
             forward_player: AtomicBool::new(false),
+            forward_system: AtomicBool::new(false),
+            player_to_rack: AtomicBool::new(true),
             out_tx,
             out_rx,
         }
@@ -438,7 +446,8 @@ impl Engine {
     }
 
     fn forward(&self, msg: [u8; 3], len: u8) {
-        if msg[0] != 0xF0 && self.shared.forward_player.load(Ordering::Relaxed) {
+        let system_ok = msg[0] != 0xF0 || self.shared.forward_system.load(Ordering::Relaxed);
+        if system_ok && self.shared.forward_player.load(Ordering::Relaxed) {
             let _ = self.shared.out_tx.try_send((msg, len));
         }
     }
@@ -450,9 +459,12 @@ impl Engine {
         }
     }
 
-    /// Send a message to the rack and (optionally) the MIDI output.
+    /// Send a player message to the rack (unless an external device plays
+    /// the song) and, when forwarding, the MIDI output.
     fn send_both(&mut self, msg: [u8; 3], len: u8) {
-        self.route(msg);
+        if self.shared.player_to_rack.load(Ordering::Relaxed) {
+            self.route(msg);
+        }
         self.forward(msg, len);
     }
 
@@ -505,7 +517,7 @@ impl Engine {
                         cc = [[None; 128]; 16];
                         bend = [None; 16];
                     }
-                    self.route(e.msg);
+                    self.send_both(e.msg, 3);
                 }
                 0xC0 => program[c] = Some(e.msg[1]),
                 0xB0 if !matches!(e.msg[1], 64 | 120..=127) => cc[c][e.msg[1] as usize & 0x7F] = Some(e.msg[2]),
